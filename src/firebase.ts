@@ -309,6 +309,120 @@ export class CloudSyncService {
     await deleteDoc(ref);
   }
 
+  // Save multiple customers
+  static async saveCustomersBatch(customers: Customer[]): Promise<void> {
+    if (!customers || customers.length === 0) return;
+    const chunkSize = 250;
+    for (let i = 0; i < customers.length; i += chunkSize) {
+      const chunk = customers.slice(i, i + chunkSize);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach((cust) => {
+          const cleanCust = sanitizeForFirestore(cust);
+          const ref = doc(db, COLLECTIONS.CUSTOMERS, cleanCust.id);
+          batch.set(ref, cleanCust, { merge: true });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Batch write customers fallback:', err);
+        for (const cust of chunk) {
+          await this.saveCustomer(cust).catch(console.warn);
+        }
+      }
+    }
+  }
+
+  // Save multiple sales
+  static async saveSalesBatch(sales: Sale[]): Promise<void> {
+    if (!sales || sales.length === 0) return;
+    const chunkSize = 250;
+    for (let i = 0; i < sales.length; i += chunkSize) {
+      const chunk = sales.slice(i, i + chunkSize);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach((s) => {
+          const cleanSale = sanitizeForFirestore(s);
+          const ref = doc(db, COLLECTIONS.SALES, cleanSale.id);
+          batch.set(ref, cleanSale, { merge: true });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Batch write sales fallback:', err);
+        for (const s of chunk) {
+          const cleanSale = sanitizeForFirestore(s);
+          const ref = doc(db, COLLECTIONS.SALES, cleanSale.id);
+          await setDoc(ref, cleanSale, { merge: true }).catch(console.warn);
+        }
+      }
+    }
+  }
+
+  // Save multiple movements
+  static async saveMovementsBatch(movements: InventoryMovement[]): Promise<void> {
+    if (!movements || movements.length === 0) return;
+    const chunkSize = 250;
+    for (let i = 0; i < movements.length; i += chunkSize) {
+      const chunk = movements.slice(i, i + chunkSize);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach((m) => {
+          const cleanMov = sanitizeForFirestore(m);
+          const ref = doc(db, COLLECTIONS.MOVEMENTS, cleanMov.id);
+          batch.set(ref, cleanMov, { merge: true });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Batch write movements fallback:', err);
+        for (const m of chunk) {
+          const cleanMov = sanitizeForFirestore(m);
+          const ref = doc(db, COLLECTIONS.MOVEMENTS, cleanMov.id);
+          await setDoc(ref, cleanMov, { merge: true }).catch(console.warn);
+        }
+      }
+    }
+  }
+
+  // Save multiple debt payments
+  static async savePaymentsBatch(payments: DebtPayment[]): Promise<void> {
+    if (!payments || payments.length === 0) return;
+    const chunkSize = 250;
+    for (let i = 0; i < payments.length; i += chunkSize) {
+      const chunk = payments.slice(i, i + chunkSize);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach((p) => {
+          const cleanPay = sanitizeForFirestore(p);
+          const ref = doc(db, COLLECTIONS.PAYMENTS, cleanPay.id);
+          batch.set(ref, cleanPay, { merge: true });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Batch write payments fallback:', err);
+        for (const p of chunk) {
+          const cleanPay = sanitizeForFirestore(p);
+          const ref = doc(db, COLLECTIONS.PAYMENTS, cleanPay.id);
+          await setDoc(ref, cleanPay, { merge: true }).catch(console.warn);
+        }
+      }
+    }
+  }
+
+  // Save multiple cash cuts
+  static async saveCashCutsBatch(cashCuts: CashCut[]): Promise<void> {
+    if (!cashCuts || cashCuts.length === 0) return;
+    for (const cut of cashCuts) {
+      await this.saveCashCut(cut).catch(console.warn);
+    }
+  }
+
+  // Save multiple cash movements
+  static async saveCashMovementsBatch(movements: CashMovement[]): Promise<void> {
+    if (!movements || movements.length === 0) return;
+    for (const m of movements) {
+      await this.saveCashMovement(m).catch(console.warn);
+    }
+  }
+
   // Save single customer
   static async saveCustomer(customer: Customer): Promise<void> {
     const cleanCustomer = sanitizeForFirestore(customer);
@@ -508,6 +622,49 @@ export class CloudSyncService {
     }
   }
 
+  // Force full sync of all local data to Cloud Firestore
+  static async syncAllLocalToCloud(data: {
+    products: Product[];
+    customers: Customer[];
+    sales: Sale[];
+    movements: InventoryMovement[];
+    payments: DebtPayment[];
+    settings?: PharmacySettings;
+    cashCuts?: CashCut[];
+    cashMovements?: CashMovement[];
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      if (data.products && data.products.length > 0) {
+        await this.saveProductsBatch(data.products);
+      }
+      if (data.customers && data.customers.length > 0) {
+        await this.saveCustomersBatch(data.customers);
+      }
+      if (data.sales && data.sales.length > 0) {
+        await this.saveSalesBatch(data.sales);
+      }
+      if (data.movements && data.movements.length > 0) {
+        await this.saveMovementsBatch(data.movements);
+      }
+      if (data.payments && data.payments.length > 0) {
+        await this.savePaymentsBatch(data.payments);
+      }
+      if (data.settings) {
+        await this.saveSettings(data.settings);
+      }
+      if (data.cashCuts && data.cashCuts.length > 0) {
+        await this.saveCashCutsBatch(data.cashCuts);
+      }
+      if (data.cashMovements && data.cashMovements.length > 0) {
+        await this.saveCashMovementsBatch(data.cashMovements);
+      }
+      return { success: true, message: 'Todos los datos se sincronizaron con éxito en la nube.' };
+    } catch (e: any) {
+      console.error('Error syncing all local to cloud:', e);
+      return { success: false, message: e?.message || 'Error al sincronizar con la nube.' };
+    }
+  }
+
   // Seed initial cloud data if Firestore is currently empty
   static async seedInitialDataIfEmpty(
     initialProducts: Product[],
@@ -528,9 +685,7 @@ export class CloudSyncService {
 
       await this.saveProductsBatch(initialProducts);
       if (initialCustomers.length > 0) {
-        for (const c of initialCustomers) {
-          await this.saveCustomer(c);
-        }
+        await this.saveCustomersBatch(initialCustomers);
       }
       if (initialSettings) {
         await this.saveSettings(initialSettings);
@@ -542,3 +697,4 @@ export class CloudSyncService {
     }
   }
 }
+

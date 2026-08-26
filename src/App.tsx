@@ -12,7 +12,8 @@ import {
   DebtPayment, 
   PharmacySettings,
   CashCut,
-  CashMovement
+  CashMovement,
+  AppUser
 } from './types/pharmacy';
 import { 
   StorageManager, 
@@ -21,7 +22,8 @@ import {
   SAMPLE_SALES, 
   SAMPLE_MOVEMENTS, 
   SAMPLE_PAYMENTS, 
-  DEFAULT_SETTINGS 
+  DEFAULT_SETTINGS,
+  DEFAULT_USERS
 } from './utils/storage';
 import { 
   CloudSyncService, 
@@ -40,9 +42,20 @@ import { TicketModal } from './components/pos/TicketModal';
 import { PhotoSearchModal } from './components/common/PhotoSearchModal';
 import { CashCutModal } from './components/pos/CashCutModal';
 import { CancelSaleModal } from './components/pos/CancelSaleModal';
+import { LoginModal } from './components/auth/LoginModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('pos');
+  
+  // User Authentication & Session
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
+    const stored = StorageManager.getCurrentUser();
+    if (stored) return stored;
+    const defaultUser = DEFAULT_USERS[0].user;
+    StorageManager.setCurrentUser(defaultUser, true);
+    return defaultUser;
+  });
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   
   // Data state (cached locally for instant paint, updated via live cloud sync)
   const [products, setProducts] = useState<Product[]>(() => StorageManager.getProducts());
@@ -121,6 +134,11 @@ export default function App() {
           if (cloudSales.length > 0) {
             setSales(cloudSales);
             StorageManager.saveSales(cloudSales, true);
+          } else {
+            const localSales = StorageManager.getSales();
+            if (localSales.length > 0) {
+              CloudSyncService.saveSalesBatch(localSales).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -129,6 +147,11 @@ export default function App() {
           if (cloudMovements.length > 0) {
             setMovements(cloudMovements);
             StorageManager.saveMovements(cloudMovements, true);
+          } else {
+            const localMovements = StorageManager.getMovements();
+            if (localMovements.length > 0) {
+              CloudSyncService.saveMovementsBatch(localMovements).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -137,6 +160,11 @@ export default function App() {
           if (cloudPayments.length > 0) {
             setPayments(cloudPayments);
             StorageManager.savePayments(cloudPayments, true);
+          } else {
+            const localPayments = StorageManager.getPayments();
+            if (localPayments.length > 0) {
+              CloudSyncService.savePaymentsBatch(localPayments).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -145,6 +173,11 @@ export default function App() {
           if (cloudSettings && cloudSettings.name) {
             setSettings(cloudSettings);
             StorageManager.saveSettings(cloudSettings, true);
+          } else {
+            const localSettings = StorageManager.getSettings();
+            if (localSettings && localSettings.name) {
+              CloudSyncService.saveSettings(localSettings).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -153,6 +186,11 @@ export default function App() {
           if (cloudCuts.length > 0) {
             setCashCuts(cloudCuts);
             StorageManager.saveCashCuts(cloudCuts, true);
+          } else {
+            const localCuts = StorageManager.getCashCuts();
+            if (localCuts.length > 0) {
+              CloudSyncService.saveCashCutsBatch(localCuts).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -161,6 +199,11 @@ export default function App() {
           if (cloudMovs.length > 0) {
             setCashMovements(cloudMovs);
             StorageManager.saveCashMovements(cloudMovs, true);
+          } else {
+            const localMovs = StorageManager.getCashMovements();
+            if (localMovs.length > 0) {
+              CloudSyncService.saveCashMovementsBatch(localMovs).catch(console.warn);
+            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
@@ -530,6 +573,42 @@ export default function App() {
     setActiveShift(StorageManager.getActiveShift());
   }, []);
 
+  const handleForceSyncAll = async () => {
+    const currentProducts = products.length > 0 ? products : StorageManager.getProducts();
+    const currentCustomers = customers.length > 0 ? customers : StorageManager.getCustomers();
+    const currentSales = sales.length > 0 ? sales : StorageManager.getSales();
+    const currentMovements = movements.length > 0 ? movements : StorageManager.getMovements();
+    const currentPayments = payments.length > 0 ? payments : StorageManager.getPayments();
+    const currentSettings = settings;
+    const currentCashCuts = cashCuts.length > 0 ? cashCuts : StorageManager.getCashCuts();
+    const currentCashMovs = cashMovements.length > 0 ? cashMovements : StorageManager.getCashMovements();
+
+    const res = await CloudSyncService.syncAllLocalToCloud({
+      products: currentProducts,
+      customers: currentCustomers,
+      sales: currentSales,
+      movements: currentMovements,
+      payments: currentPayments,
+      settings: currentSettings,
+      cashCuts: currentCashCuts,
+      cashMovements: currentCashMovs,
+    });
+    setIsCloudConnected(true);
+    return res;
+  };
+
+  const handleLoginSuccess = (user: AppUser) => {
+    setCurrentUser(user);
+    handleForceSyncAll().catch(console.warn);
+    refreshAllData();
+  };
+
+  const handleLogout = () => {
+    StorageManager.logout();
+    setCurrentUser(null);
+    setIsLoginModalOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans antialiased selection:bg-teal-500 selection:text-white">
       
@@ -545,6 +624,10 @@ export default function App() {
         onOpenPhotoSearch={() => setIsPhotoSearchOpen(true)}
         onOpenCashCut={() => setIsCashCutOpen(true)}
         isCloudConnected={isCloudConnected}
+        onForceSyncToCloud={handleForceSyncAll}
+        currentUser={currentUser}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -630,6 +713,19 @@ export default function App() {
             settings={settings}
             onSaveSettings={handleSaveSettings}
             onRefreshData={refreshAllData}
+            isCloudConnected={isCloudConnected}
+            onForceSyncToCloud={handleForceSyncAll}
+            currentUser={currentUser}
+            onOpenLogin={() => setIsLoginModalOpen(true)}
+            onLogout={handleLogout}
+            counts={{
+              products: products.length,
+              customers: customers.length,
+              sales: sales.length,
+              movements: movements.length,
+              payments: payments.length,
+              cashCuts: cashCuts.length,
+            }}
             onWipeAllData={() => {
               setProducts([]);
               setCustomers([]);
@@ -638,14 +734,28 @@ export default function App() {
               setPayments([]);
               setCashCuts([]);
               setCashMovements([]);
+              CloudSyncService.wipeAllDataFromCloud(true).catch(console.warn);
             }}
             onLoadDemoData={() => {
-              setProducts(StorageManager.getProducts());
-              setCustomers(StorageManager.getCustomers());
+              const demoProducts = StorageManager.getProducts();
+              const demoCustomers = StorageManager.getCustomers();
+              setProducts(demoProducts);
+              setCustomers(demoCustomers);
+              CloudSyncService.saveProductsBatch(demoProducts).catch(console.warn);
+              CloudSyncService.saveCustomersBatch(demoCustomers).catch(console.warn);
             }}
           />
         )}
       </main>
+
+      {/* User Login & Authentication Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+        currentUser={currentUser}
+        isBlocking={false}
+      />
 
       {/* Photo Visual Search Modal */}
       {isPhotoSearchOpen && (

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   ShoppingCart, 
   Package, 
@@ -9,9 +9,15 @@ import {
   Camera,
   Coffee,
   Sparkles,
-  Calculator
+  Calculator,
+  User,
+  LogOut,
+  KeyRound,
+  ChevronDown,
+  Shield,
+  Cloud
 } from 'lucide-react';
-import { Product, Customer } from '../types/pharmacy';
+import { Product, Customer, AppUser } from '../types/pharmacy';
 import { getExpiryStatus } from '../utils/formatters';
 
 export type ActiveTab = 'pos' | 'inventory' | 'movements' | 'customers' | 'reports' | 'settings';
@@ -25,6 +31,10 @@ interface NavbarProps {
   onOpenPhotoSearch?: () => void;
   onOpenCashCut?: () => void;
   isCloudConnected?: boolean;
+  onForceSyncToCloud?: () => Promise<{ success: boolean; message: string }>;
+  currentUser?: AppUser | null;
+  onOpenLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,7 +46,24 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenPhotoSearch,
   onOpenCashCut,
   isCloudConnected = true,
+  onForceSyncToCloud,
+  currentUser,
+  onOpenLogin,
+  onLogout,
 }) => {
+  const [isSyncing, setIsSyncing] = React.useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  const handleQuickSync = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onForceSyncToCloud || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await onForceSyncToCloud();
+    } finally {
+      setTimeout(() => setIsSyncing(false), 800);
+    }
+  };
   // Compute critical count (expired / low stock)
   const lowStockCount = products.filter(p => p.stock <= p.minStock).length;
   const criticalExpiryCount = products.filter(p => {
@@ -74,16 +101,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Real-time Cloud status indicator */}
-            <div 
-              className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-300"
-              title={isCloudConnected ? "Conectado y sincronizando en tiempo real con Firebase Firestore" : "Modo local / reconectando"}
+            {/* Real-time Cloud status indicator & Manual Sync button */}
+            <button 
+              type="button"
+              onClick={handleQuickSync}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all cursor-pointer ${
+                isCloudConnected 
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/80 hover:border-emerald-400' 
+                  : 'bg-amber-950/60 border-amber-500/40 text-amber-300 hover:bg-amber-900/80'
+              }`}
+              title="Haz clic para forzar sincronización con la nube"
             >
-              <span className={`w-2 h-2 rounded-full ${isCloudConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="whitespace-nowrap">
-                {isCloudConnected ? 'Nube en vivo' : 'Conectando'}
+              <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-teal-300 animate-ping' : isCloudConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="whitespace-nowrap font-medium">
+                {isSyncing ? 'Sincronizando...' : isCloudConnected ? 'Nube en Vivo' : 'Reconectando'}
               </span>
-            </div>
+            </button>
           </div>
 
           {/* Zone 2: Navigation Links (Hidden on small mobile screens in favor of bottom bar) */}
@@ -117,7 +150,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </nav>
 
-          {/* Zone 3: Primary Actions (Photo Search + Cash Cut + Quick Sale) */}
+          {/* Zone 3: Primary Actions (Photo Search + Cash Cut + Quick Sale + User Profile) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {onOpenCashCut && (
               <button
@@ -151,6 +184,117 @@ export const Navbar: React.FC<NavbarProps> = ({
               <ShoppingCart className="w-4 h-4 shrink-0" />
               <span>+ Cobro</span>
             </button>
+
+            {/* User Session Button & Dropdown */}
+            <div className="relative">
+              {currentUser ? (
+                <button
+                  type="button"
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-1.5 px-2 sm:px-2.5 rounded-lg transition-all cursor-pointer shadow-xs"
+                  title={`Sesión activa: ${currentUser.name} (${currentUser.username})`}
+                >
+                  <div className="w-6 h-6 rounded-md bg-teal-600 text-white font-bold text-[10px] flex items-center justify-center">
+                    {currentUser.username === 'farmaolmos' ? 'FO' : currentUser.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="hidden lg:flex flex-col text-left">
+                    <span className="text-[11px] font-bold text-teal-300 leading-tight">
+                      {currentUser.username === 'farmaolmos' ? 'FarmaOlmos' : currentUser.name}
+                    </span>
+                    <span className="text-[9px] text-slate-400 leading-tight">
+                      {currentUser.role === 'admin' ? 'Administrador' : 'Cajero'}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold py-2 px-2.5 sm:px-3 rounded-lg transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                  title="Iniciar sesión para sincronizar multidispositivo"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span className="hidden sm:inline">Iniciar Sesión</span>
+                </button>
+              )}
+
+              {/* User Dropdown Menu */}
+              {isUserMenuOpen && currentUser && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setIsUserMenuOpen(false)} 
+                  />
+                  <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3 z-50 text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center gap-2.5 p-2 bg-slate-800/80 rounded-xl mb-2">
+                      <div className="w-9 h-9 rounded-lg bg-teal-600 text-white font-black text-sm flex items-center justify-center shadow-xs">
+                        {currentUser.username === 'farmaolmos' ? 'FO' : currentUser.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="text-xs font-bold text-white truncate">{currentUser.name}</p>
+                        <p className="text-[10px] text-teal-300 font-mono">@{currentUser.username}</p>
+                        <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {currentUser.role === 'admin' ? 'Administrador General' : 'Cajero'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-400 px-2 py-1 space-y-0.5 border-b border-slate-800 pb-2 mb-2">
+                      <p>Sucursal: <strong className="text-slate-300">{currentUser.branchName}</strong></p>
+                      <p className="flex items-center gap-1 text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Sincronización en vivo activa
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      {onForceSyncToCloud && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            setIsUserMenuOpen(false);
+                            handleQuickSync(e);
+                          }}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold rounded-lg text-slate-200 hover:bg-slate-800 hover:text-teal-300 transition-colors"
+                        >
+                          <Cloud className="w-4 h-4 text-teal-400" />
+                          <span>Forzar Sincronización</span>
+                        </button>
+                      )}
+
+                      {onOpenLogin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            onOpenLogin();
+                          }}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold rounded-lg text-slate-200 hover:bg-slate-800 hover:text-teal-300 transition-colors"
+                        >
+                          <KeyRound className="w-4 h-4 text-teal-400" />
+                          <span>Cambiar de Usuario</span>
+                        </button>
+                      )}
+
+                      {onLogout && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            onLogout();
+                          }}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold rounded-lg text-rose-300 hover:bg-rose-950/50 hover:text-rose-200 transition-colors"
+                        >
+                          <LogOut className="w-4 h-4 text-rose-400" />
+                          <span>Cerrar Sesión / Bloquear</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
         </div>

@@ -1,5 +1,32 @@
-import { Product, Customer, Sale, InventoryMovement, DebtPayment, PharmacySettings, CashCut, CashMovement } from '../types/pharmacy';
+import { Product, Customer, Sale, InventoryMovement, DebtPayment, PharmacySettings, CashCut, CashMovement, AppUser } from '../types/pharmacy';
 import { CloudSyncService } from '../firebase';
+
+export const DEFAULT_USERS: { user: AppUser; passwordHash: string }[] = [
+  {
+    user: {
+      id: 'usr-farmaolmos',
+      username: 'farmaolmos',
+      name: 'David Olmos (FarmaOlmos)',
+      email: 'farmaolmos@farmacia.com',
+      role: 'admin',
+      branchName: 'FarmaOlmos - Sucursal Matriz',
+      avatarColor: 'teal',
+    },
+    passwordHash: 'david06',
+  },
+  {
+    user: {
+      id: 'usr-cajero',
+      username: 'cajero',
+      name: 'Cajero / Mostrador',
+      email: 'caja@farmaolmos.com',
+      role: 'cashier',
+      branchName: 'FarmaOlmos - Sucursal Matriz',
+      avatarColor: 'blue',
+    },
+    passwordHash: '1234',
+  },
+];
 
 export const DEFAULT_SETTINGS: PharmacySettings = {
   name: 'Mi Farmacia',
@@ -148,6 +175,8 @@ const STORAGE_KEYS = {
   ACTIVE_SHIFT_START: 'farmacontrol_active_shift_start_v1',
   ACTIVE_INITIAL_CASH: 'farmacontrol_active_initial_cash_v1',
   VIRGIN_INITIALIZED: 'farmacontrol_virgin_mode_applied_v1',
+  CURRENT_USER: 'farmacontrol_current_user_v1',
+  CUSTOM_USERS: 'farmacontrol_custom_users_v1',
 };
 
 export class StorageManager {
@@ -329,6 +358,97 @@ export class StorageManager {
     if (!skipCloud) {
       CloudSyncService.saveSettings(settings).catch(console.warn);
     }
+  }
+
+  // User Authentication & Session
+  static getCurrentUser(): AppUser | null {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER) || sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      if (!data) return null;
+      return JSON.parse(data);
+    } catch (e) {
+      console.error('Error reading current user session', e);
+      return null;
+    }
+  }
+
+  static setCurrentUser(user: AppUser | null, remember: boolean = true): void {
+    if (!user) {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    } else {
+      const serialized = JSON.stringify(user);
+      if (remember) {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, serialized);
+      } else {
+        sessionStorage.setItem(STORAGE_KEYS.CURRENT_USER, serialized);
+      }
+    }
+    window.dispatchEvent(new Event('farmacontrol_auth_updated'));
+  }
+
+  static validateAndLogin(usernameOrEmail: string, passwordInput: string, remember: boolean = true): { success: boolean; user?: AppUser; message?: string } {
+    const cleanUser = usernameOrEmail.trim().toLowerCase();
+    const cleanPass = passwordInput.trim();
+
+    // Check against FarmaOlmos / default accounts
+    const match = DEFAULT_USERS.find(u => 
+      (u.user.username.toLowerCase() === cleanUser || (u.user.email && u.user.email.toLowerCase() === cleanUser)) &&
+      u.passwordHash === cleanPass
+    );
+
+    if (match) {
+      const loggedUser: AppUser = {
+        ...match.user,
+        lastLogin: new Date().toISOString(),
+      };
+      this.setCurrentUser(loggedUser, remember);
+      return { success: true, user: loggedUser };
+    }
+
+    // Check custom registered users if any
+    try {
+      const customRaw = localStorage.getItem(STORAGE_KEYS.CUSTOM_USERS);
+      if (customRaw) {
+        const customUsers: { user: AppUser; passwordHash: string }[] = JSON.parse(customRaw);
+        const cMatch = customUsers.find(u => 
+          (u.user.username.toLowerCase() === cleanUser || (u.user.email && u.user.email.toLowerCase() === cleanUser)) &&
+          u.passwordHash === cleanPass
+        );
+        if (cMatch) {
+          const loggedUser: AppUser = {
+            ...cMatch.user,
+            lastLogin: new Date().toISOString(),
+          };
+          this.setCurrentUser(loggedUser, remember);
+          return { success: true, user: loggedUser };
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading custom users:', e);
+    }
+
+    return { 
+      success: false, 
+      message: 'Usuario o contraseña incorrectos. Verifique sus credenciales (ej. farmaolmos / david06).' 
+    };
+  }
+
+  static registerCustomUser(user: AppUser, passwordInput: string): boolean {
+    try {
+      const customRaw = localStorage.getItem(STORAGE_KEYS.CUSTOM_USERS);
+      const list: { user: AppUser; passwordHash: string }[] = customRaw ? JSON.parse(customRaw) : [];
+      list.push({ user, passwordHash: passwordInput.trim() });
+      localStorage.setItem(STORAGE_KEYS.CUSTOM_USERS, JSON.stringify(list));
+      return true;
+    } catch (e) {
+      console.error('Error saving custom user', e);
+      return false;
+    }
+  }
+
+  static logout(): void {
+    this.setCurrentUser(null);
   }
 
   // Wipes all data to leave system completely clean/virgin (ONLY when user explicitly requests it in Settings)

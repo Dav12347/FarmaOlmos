@@ -260,3 +260,23 @@ export interface PharmacySettings {
   taxRate: number; // e.g. 0.16 or 0
   allowDebtExceedLimit: boolean;
 }
+
+export type UserRole = 'admin' | 'pharmacist' | 'cashier';
+
+export interface AppUser {
+  id: string;
+  username: string;
+  name: string;
+  email?: string;
+  role: UserRole;
+  branchName: string;
+  lastLogin?: string;
+  avatarColor?: string;
+}
+
+export interface AuthSession {
+  user: AppUser;
+  token?: string;
+  rememberMe: boolean;
+  loggedAt: string;
+}
