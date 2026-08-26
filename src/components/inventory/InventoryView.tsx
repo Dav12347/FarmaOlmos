@@ -32,11 +32,14 @@ import {
   Percent,
   CheckCircle2,
   Tag,
-  FileText
+  FileText,
+  Download
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SupplierTicketModal } from './SupplierTicketModal';
 import { StockEntryExcelModal } from '../movements/StockEntryExcelModal';
+import { ExportInventoryModal } from './ExportInventoryModal';
+import { Customer, Sale, DebtPayment, CashCut } from '../../types/pharmacy';
 
 interface InventoryViewProps {
   products: Product[];
@@ -46,6 +49,11 @@ interface InventoryViewProps {
   onRegisterMovement?: (movement: InventoryMovement, updatedProducts: Product[]) => void;
   movementsCount?: number;
   onOpenPhotoSearch?: () => void;
+  customers?: Customer[];
+  sales?: Sale[];
+  movements?: InventoryMovement[];
+  payments?: DebtPayment[];
+  cashCuts?: CashCut[];
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -56,6 +64,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onRegisterMovement,
   movementsCount = 0,
   onOpenPhotoSearch,
+  customers = [],
+  sales = [],
+  movements = [],
+  payments = [],
+  cashCuts = [],
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'low_stock' | 'critical_expiry' | 'warning_expiry' | 'expired' | 'prescription'>('all');
@@ -86,6 +99,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Stock Entry from Excel Modal State
   const [isStockEntryExcelModalOpen, setIsStockEntryExcelModalOpen] = useState(false);
+
+  // Export / Backup Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Form State for Add/Edit Product
   const [formData, setFormData] = useState<Partial<Product>>({
@@ -459,89 +475,90 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   }, [products]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
       
       {/* Top Header & Fast Action Buttons */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900  flex items-center gap-2">
-            <Pill className="w-5 h-5 text-teal-600" />
-            Sistema de Gestión de Inventario y Medicamentos
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Pill className="w-5 h-5 text-teal-600 shrink-0" />
+            <span>Sistema de Gestión de Inventario y Medicamentos</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Catálogo completo con código único, unidad de medida, control de entradas, salidas por ventas/mermas y semáforo de caducidades
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Photo Search Button */}
           {onOpenPhotoSearch && (
             <button
               onClick={onOpenPhotoSearch}
-              className="px-3 py-2 bg-teal-50  hover:bg-teal-100  text-teal-700  border border-teal-200  text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
               title="Buscar o dar de alta mediante fotografía con cámara"
             >
               <ImageIcon className="w-4 h-4 text-teal-600" />
-              <span>Buscar x Foto</span>
+              <span>Foto</span>
             </button>
           )}
 
           {/* Quick Exit / Merma Button */}
           <button
             onClick={() => handleOpenQuickMovement('exit')}
-            className="px-3 py-2 bg-rose-50  hover:bg-rose-100  text-rose-700  border border-rose-200  text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
             title="Registrar salida de productos por mermas, caducidad o daños"
           >
             <ArrowUpRight className="w-4 h-4 text-rose-600" />
-            - Salida / Merma
+            <span>- Merma</span>
           </button>
 
           {/* Quick Entry Button */}
           <button
             onClick={() => handleOpenQuickMovement('entry')}
-            className="px-3 py-2 bg-emerald-50  hover:bg-emerald-100  text-emerald-700  border border-emerald-200  text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
             title="Registrar entrada de nuevos productos o compras de stock"
           >
             <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
-            + Entrada de Stock
+            <span>+ Entrada</span>
           </button>
 
           {/* Surtir con Ticket / Factura PDF */}
           <button
             onClick={() => setIsSupplierTicketModalOpen(true)}
-            className="px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
             title="Dar de alta productos o existencias subiendo ticket de compra o factura en PDF de tu proveedor"
           >
             <FileText className="w-4 h-4 text-teal-300" />
-            <span>📥 Cargar Ticket / PDF Proveedor</span>
+            <span>📥 Ticket/PDF</span>
           </button>
 
           {/* Entrada Masiva desde Excel */}
           <button
             onClick={() => setIsStockEntryExcelModalOpen(true)}
-            className="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
             title="Cargar compras masivas desde archivo Excel (.xlsx / .csv)"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>📊 Entrada Excel</span>
+            <span>📊 Excel</span>
           </button>
 
-          {/* Export Excel */}
+          {/* Export Options (Excel, CSV, PDF, Update Template, Full DB) */}
           <button
-            onClick={handleExportCatalog}
-            className="px-3 py-2 bg-white  border border-slate-200  text-slate-700  text-xs font-semibold rounded-lg hover:bg-slate-50  transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            onClick={() => setIsExportModalOpen(true)}
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3.5 py-2 bg-white border border-teal-300 text-teal-800 text-xs font-bold rounded-lg hover:bg-teal-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            title="Exportar inventario en Excel, CSV, PDF o Plantilla de Actualización"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            Exportar
+            <Download className="w-4 h-4 text-teal-600" />
+            <span>Exportar</span>
           </button>
 
           {/* New Product Registration */}
           <button
             onClick={openNewProductModal}
-            className="px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="w-full sm:w-auto px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            + Alta de Producto
+            <span>+ Alta de Producto</span>
           </button>
         </div>
       </div>
@@ -1783,6 +1800,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             onRegisterMovement(movement, updatedProducts);
           }
         }}
+      />
+
+      {/* Export Inventory & Database Modal */}
+      <ExportInventoryModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        products={products}
+        settings={settings}
+        customers={customers}
+        sales={sales}
+        movements={movements}
+        payments={payments}
+        cashCuts={cashCuts}
       />
 
     </div>

@@ -41,7 +41,11 @@ import {
   Banknote,
   ArrowRightLeft,
   Percent,
-  Check
+  Check,
+  UserX,
+  UserMinus,
+  AlertTriangle,
+  Sparkles
 } from 'lucide-react';
 import { exportCustomerAccountStatementPDF } from '../../utils/exportUtils';
 import { DocumentViewerModal } from '../common/DocumentViewerModal';
@@ -72,7 +76,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   onCloseInitialAddModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDebtOnly, setFilterDebtOnly] = useState(false);
+  const [filterTab, setFilterTab] = useState<'all' | 'with_debt' | 'liquidated'>('all');
   
   // Registration / Edit Modal
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(isAddModalInitiallyOpen);
@@ -94,6 +98,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [cashTendered, setCashTendered] = useState<string>('');
   const [paymentNotes, setPaymentNotes] = useState<string>('');
   const [paymentRegisteredBy, setPaymentRegisteredBy] = useState<string>('Cajero Principal');
+  const [autoDeleteAfterLiquidation, setAutoDeleteAfterLiquidation] = useState<boolean>(false);
+
+  // Post-Liquidation Dialog State
+  const [postLiquidationTarget, setPostLiquidationTarget] = useState<Customer | null>(null);
+
+  // Delete Customer Confirmation Modal State
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
 
   // Quick Debt Adjustment Modal (Ajuste Manual / Condonación)
   const [isAdjustDebtModalOpen, setIsAdjustDebtModalOpen] = useState(false);
@@ -121,10 +132,27 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     return customers.find(c => c.id === selectedCustomerId) || null;
   }, [customers, selectedCustomerId]);
 
+  const totalOutstandingDebt = useMemo(() => {
+    return customers.reduce((sum, c) => sum + c.currentDebt, 0);
+  }, [customers]);
+
+  const totalCreditLimit = useMemo(() => {
+    return customers.reduce((sum, c) => sum + c.creditLimit, 0);
+  }, [customers]);
+
+  const totalDebtorsCount = useMemo(() => {
+    return customers.filter(c => c.currentDebt > 0).length;
+  }, [customers]);
+
+  const totalLiquidatedCount = useMemo(() => {
+    return customers.filter(c => c.currentDebt <= 0).length;
+  }, [customers]);
+
   const filteredCustomers = useMemo(() => {
     const q = searchTerm.toLowerCase().trim();
     return customers.filter(c => {
-      if (filterDebtOnly && c.currentDebt <= 0) return false;
+      if (filterTab === 'with_debt' && c.currentDebt <= 0) return false;
+      if (filterTab === 'liquidated' && c.currentDebt > 0) return false;
       if (!q) return true;
 
       return (
@@ -135,7 +163,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         (c.address && c.address.toLowerCase().includes(q))
       );
     });
-  }, [customers, searchTerm, filterDebtOnly]);
+  }, [customers, searchTerm, filterTab]);
 
   const openNewCustomerModal = () => {
     setEditingCustomer(null);
@@ -173,6 +201,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setPaymentMethod('cash');
     setCashTendered(mode === 'liquidar' ? customer.currentDebt.toString() : '');
     setPaymentNotes(mode === 'liquidar' ? 'Liquidación total de saldo pendiente' : '');
+    setAutoDeleteAfterLiquidation(false);
     setIsPaymentModalOpen(true);
   };
 
@@ -327,19 +356,43 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
     onRegisterPayment(paymentRecord, updatedCustomer);
     setIsPaymentModalOpen(false);
+
+    // If completely liquidated to $0.00
+    if (remainingDebt === 0) {
+      if (autoDeleteAfterLiquidation) {
+        // Automatic deletion requested during payment modal
+        onDeleteCustomer(target.id);
+        if (selectedCustomerId === target.id) {
+          setSelectedCustomerId(null);
+        }
+      } else {
+        // Show post-liquidation prompt to ask whether to delete or keep
+        setPostLiquidationTarget(updatedCustomer);
+      }
+    }
   };
 
-  const totalOutstandingDebt = useMemo(() => {
-    return customers.reduce((sum, c) => sum + c.currentDebt, 0);
-  }, [customers]);
+  const handleDeleteCustomerConfirm = (customer: Customer) => {
+    onDeleteCustomer(customer.id);
+    if (selectedCustomerId === customer.id) {
+      setSelectedCustomerId(null);
+    }
+    setCustomerToDelete(null);
+  };
 
-  const totalCreditLimit = useMemo(() => {
-    return customers.reduce((sum, c) => sum + c.creditLimit, 0);
-  }, [customers]);
-
-  const totalDebtorsCount = useMemo(() => {
-    return customers.filter(c => c.currentDebt > 0).length;
-  }, [customers]);
+  const handleBulkDeleteLiquidated = () => {
+    const liquidated = customers.filter(c => c.currentDebt <= 0);
+    if (liquidated.length === 0) {
+      alert('No hay clientes liquidados ($0.00) para eliminar.');
+      return;
+    }
+    if (confirm(`¿Está seguro de eliminar ${liquidated.length} cliente(s) con saldo $0.00 (liquidados)? Esta acción limpiará sus expedientes de la lista de deudores.`)) {
+      liquidated.forEach(c => onDeleteCustomer(c.id));
+      if (selectedCustomer && selectedCustomer.currentDebt <= 0) {
+        setSelectedCustomerId(null);
+      }
+    }
+  };
 
   // Customer sales and payments
   const customerSales = useMemo(() => {
@@ -359,66 +412,119 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const remainingDebtPreview = activeTarget ? Math.max(0, activeTarget.currentDebt - parsedPayAmount) : 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="w-5 h-5 text-teal-600" />
-            Cuentas de Crédito, Deudores y Expedientes de Clientes
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Users className="w-5 h-5 text-teal-600 shrink-0" />
+            <span>Cuentas de Crédito, Deudores y Clientes</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Gestión completa: Liquidar deudas, registrar abonos, editar clientes y controlar expedientes con Foto o PDF
+            Gestión completa: Liquidar deudas, registrar abonos, eliminar deudores liquidados ($0.00) y expedientes
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {totalLiquidatedCount > 0 && (
+            <button
+              onClick={handleBulkDeleteLiquidated}
+              className="flex-1 sm:flex-initial px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              title="Eliminar todos los clientes con saldo en ceros ($0.00)"
+            >
+              <UserMinus className="w-4 h-4 text-rose-600" />
+              <span>Limpiar Liquidados ({totalLiquidatedCount})</span>
+            </button>
+          )}
+
           <button
             onClick={openNewCustomerModal}
-            className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-3.5 sm:px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
           >
             <UserPlus className="w-4 h-4" />
-            + Alta de Cliente con Foto/PDF
+            <span>+ Alta Cliente</span>
           </button>
         </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
-            <DollarSign className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 font-medium">Deuda Total por Cobrar (Fiados)</span>
-            <div className="text-lg font-bold text-amber-700 mt-0.5">
-              {formatCurrency(totalOutstandingDebt)}
+        <div 
+          onClick={() => setFilterTab('with_debt')}
+          className={`p-4 rounded-xl border transition-all cursor-pointer ${
+            filterTab === 'with_debt'
+              ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400 shadow-sm'
+              : 'bg-white border-slate-200 shadow-xs hover:border-amber-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-amber-100 text-amber-700 rounded-xl">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 font-medium">Deuda Total por Cobrar</span>
+                <div className="text-lg font-bold text-amber-700 mt-0.5">
+                  {formatCurrency(totalOutstandingDebt)}
+                </div>
+              </div>
             </div>
+            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+              {totalDebtorsCount} deudor(es)
+            </span>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-3 bg-teal-50 text-teal-600 rounded-xl">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 font-medium">Clientes con Saldo Deudor</span>
-            <div className="text-lg font-bold text-slate-900 mt-0.5">
-              {totalDebtorsCount} de {customers.length} clientes
+        <div 
+          onClick={() => setFilterTab('liquidated')}
+          className={`p-4 rounded-xl border transition-all cursor-pointer ${
+            filterTab === 'liquidated'
+              ? 'bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-400 shadow-sm'
+              : 'bg-white border-slate-200 shadow-xs hover:border-emerald-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 font-medium">Cuentas Liquidadas ($0.00)</span>
+                <div className="text-lg font-bold text-emerald-700 mt-0.5">
+                  {totalLiquidatedCount} cliente(s)
+                </div>
+              </div>
             </div>
+            <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/70 px-2 py-0.5 rounded-full">
+              Listos para baja
+            </span>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-3 bg-slate-100 text-slate-600 rounded-xl">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 font-medium">Límite de Crédito Otorgado</span>
-            <div className="text-lg font-bold text-slate-900 mt-0.5">
-              {formatCurrency(totalCreditLimit)}
+        <div 
+          onClick={() => setFilterTab('all')}
+          className={`p-4 rounded-xl border transition-all cursor-pointer ${
+            filterTab === 'all'
+              ? 'bg-teal-50/70 border-teal-300 ring-2 ring-teal-400 shadow-sm'
+              : 'bg-white border-slate-200 shadow-xs hover:border-teal-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-teal-100 text-teal-700 rounded-xl">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 font-medium">Límite de Crédito Otorgado</span>
+                <div className="text-lg font-bold text-slate-900 mt-0.5">
+                  {formatCurrency(totalCreditLimit)}
+                </div>
+              </div>
             </div>
+            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold">
+              {customers.length} total
+            </span>
           </div>
         </div>
       </div>
@@ -430,27 +536,48 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         <div className="lg:col-span-7 space-y-4">
           
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <div className="relative w-full sm:w-80">
+            <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Buscar por nombre, teléfono, INE, dirección..."
+                placeholder="Buscar por nombre, teléfono, INE..."
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
-            <div className="flex gap-2">
+            {/* Filter Tabs: Todos, Con Deuda, Liquidados ($0) */}
+            <div className="flex bg-slate-100 p-1 rounded-lg text-xs w-full sm:w-auto overflow-x-auto">
               <button
-                onClick={() => setFilterDebtOnly(!filterDebtOnly)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                  filterDebtOnly
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                onClick={() => setFilterTab('all')}
+                className={`px-3 py-1.5 rounded-md font-semibold cursor-pointer transition-all whitespace-nowrap ${
+                  filterTab === 'all'
+                    ? 'bg-white text-teal-800 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Solo con Deuda ({totalDebtorsCount})
+                Todos ({customers.length})
+              </button>
+              <button
+                onClick={() => setFilterTab('with_debt')}
+                className={`px-3 py-1.5 rounded-md font-semibold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1 ${
+                  filterTab === 'with_debt'
+                    ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                    : 'text-amber-700 hover:text-amber-800'
+                }`}
+              >
+                Con Deuda ({totalDebtorsCount})
+              </button>
+              <button
+                onClick={() => setFilterTab('liquidated')}
+                className={`px-3 py-1.5 rounded-md font-semibold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1 ${
+                  filterTab === 'liquidated'
+                    ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                    : 'text-emerald-700 hover:text-emerald-800'
+                }`}
+              >
+                Liquidados / $0 ({totalLiquidatedCount})
               </button>
             </div>
           </div>
@@ -464,7 +591,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     <th className="py-3 px-3">Deuda Actual</th>
                     <th className="py-3 px-3">Límite</th>
                     <th className="py-3 px-3">Expediente</th>
-                    <th className="py-3 px-3 text-center">Acciones Rápidas</th>
+                    <th className="py-3 px-3 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -491,6 +618,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                                 Excedido
                               </span>
                             )}
+                            {!hasDebt && (
+                              <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-semibold flex items-center gap-0.5">
+                                <Check className="w-2.5 h-2.5" /> Liquidado
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
                             <span className="flex items-center gap-0.5"><Phone className="w-3 h-3" /> {c.phone}</span>
@@ -503,7 +635,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                             {formatCurrency(c.currentDebt)}
                           </span>
                           <div className="text-[10px] text-slate-400">
-                            {hasDebt ? 'Pendiente' : 'Al corriente'}
+                            {hasDebt ? 'Saldo Pendiente' : 'Al corriente / En ceros'}
                           </div>
                         </td>
 
@@ -523,8 +655,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         </td>
 
                         <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
-                            {hasDebt && (
+                          <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                            {hasDebt ? (
                               <>
                                 <button
                                   onClick={() => openPaymentModalForCustomer(c, 'liquidar')}
@@ -544,6 +676,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                                   Abonar
                                 </button>
                               </>
+                            ) : (
+                              <button
+                                onClick={() => setCustomerToDelete(c)}
+                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Eliminar / Dar de baja cliente liquidado ($0.00)"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-600" />
+                                Eliminar
+                              </button>
                             )}
 
                             <button
@@ -553,6 +694,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
+
+                            {hasDebt && (
+                              <button
+                                onClick={() => setCustomerToDelete(c)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                title="Eliminar registro"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
 
                             <button
                               onClick={() => setSelectedCustomerId(c.id)}
@@ -573,7 +724,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                   {filteredCustomers.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-10 text-center text-slate-400 text-xs">
-                        No se encontraron clientes registrados.
+                        {filterTab === 'liquidated'
+                          ? 'No hay clientes con saldo liquidado ($0.00).'
+                          : filterTab === 'with_debt'
+                          ? '¡Excelente! No hay clientes con deuda pendiente.'
+                          : 'No se encontraron clientes registrados.'}
                       </td>
                     </tr>
                   )}
@@ -595,9 +750,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-bold text-slate-900">{selectedCustomer.name}</h3>
-                    {selectedCustomer.currentDebt > 0 && (
+                    {selectedCustomer.currentDebt > 0 ? (
                       <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded-full">
                         Saldo Pendiente
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Check className="w-3 h-3" /> Liquidado ($0.00)
                       </span>
                     )}
                   </div>
@@ -650,35 +809,41 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons Bar: Liquidar / Abonar / Editar / Ajustar Saldo / PDF */}
+              {/* Action Buttons Bar: Liquidar / Abonar / Editar / Ajustar Saldo / Eliminar Liquidado / PDF */}
               <div className="p-3 bg-white border-b border-slate-200 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    disabled={selectedCustomer.currentDebt <= 0}
-                    onClick={() => openPaymentModalForCustomer(selectedCustomer, 'liquidar')}
-                    className={`py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs ${
-                      selectedCustomer.currentDebt > 0
-                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    Liquidar Total ({formatCurrency(selectedCustomer.currentDebt)})
-                  </button>
+                {selectedCustomer.currentDebt > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => openPaymentModalForCustomer(selectedCustomer, 'liquidar')}
+                      className="py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Liquidar Total ({formatCurrency(selectedCustomer.currentDebt)})
+                    </button>
 
-                  <button
-                    disabled={selectedCustomer.currentDebt <= 0}
-                    onClick={() => openPaymentModalForCustomer(selectedCustomer, 'abono')}
-                    className={`py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs ${
-                      selectedCustomer.currentDebt > 0
-                        ? 'bg-teal-600 hover:bg-teal-500 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Receipt className="w-3.5 h-3.5" />
-                    Abonar Parcial
-                  </button>
-                </div>
+                    <button
+                      onClick={() => openPaymentModalForCustomer(selectedCustomer, 'abono')}
+                      className="py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs bg-teal-600 hover:bg-teal-500 text-white shadow-xs"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      Abonar Parcial
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Cuenta en ceros (Liquidada)
+                    </div>
+                    <button
+                      onClick={() => setCustomerToDelete(selectedCustomer)}
+                      className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Eliminar Deudor
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <button
@@ -687,7 +852,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     title="Editar información general, límite y teléfono"
                   >
                     <Pencil className="w-3.5 h-3.5 text-teal-600" />
-                    Editar Cliente
+                    Editar
                   </button>
 
                   <button
@@ -707,6 +872,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     <Download className="w-3.5 h-3.5 text-teal-600" />
                     PDF
                   </button>
+
+                  {selectedCustomer.currentDebt > 0 && (
+                    <button
+                      onClick={() => setCustomerToDelete(selectedCustomer)}
+                      className="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
+                      title="Eliminar cliente"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1387,11 +1562,27 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
               {remainingDebtPreview === 0 && (
-                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <span className="font-bold text-[11px]">
-                    ¡Excelente! Esta operación dejará la cuenta en $0.00 (Totalmente Liquidada).
-                  </span>
+                <div className="space-y-2">
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span className="font-bold text-[11px]">
+                      ¡Excelente! Esta operación dejará la cuenta en $0.00 (Totalmente Liquidada).
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-xl flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      id="autoDeleteAfterLiquidationCheckbox"
+                      checked={autoDeleteAfterLiquidation}
+                      onChange={e => setAutoDeleteAfterLiquidation(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="autoDeleteAfterLiquidationCheckbox" className="text-xs text-rose-950 font-medium cursor-pointer select-none">
+                      <strong className="font-bold text-rose-900 block">Dar de baja / Eliminar deudor automáticamente al liquidar</strong>
+                      Al confirmar el pago de {formatCurrency(parsedPayAmount)}, el deudor quedará con saldo $0.00 y será retirado de la lista de deudores.
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -1399,7 +1590,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
-                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -1419,6 +1610,160 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Post-Liquidation Prompt Modal */}
+      {postLiquidationTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden text-xs">
+            <div className="px-6 py-4 bg-emerald-600 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-700 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-emerald-200" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">¡Cuenta Liquidada al 100%!</h3>
+                  <p className="text-[11px] text-emerald-100">{postLiquidationTarget.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setPostLiquidationTarget(null)} className="text-emerald-100 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900">
+                <div className="flex items-center gap-2 font-bold text-sm">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  Saldo Actual: $0.00 (En Ceros)
+                </div>
+                <p className="mt-1 text-xs text-emerald-800">
+                  El pago fue registrado y guardado con éxito. Su historial de compras y pagos queda protegido.
+                </p>
+              </div>
+
+              <p className="text-slate-700 text-xs">
+                ¿Deseas <strong>eliminar</strong> a <strong>{postLiquidationTarget.name}</strong> del catálogo de deudores ahora que ya liquidó su adeudo, o prefieres <strong>conservarlo</strong> registrado para futuras compras a crédito?
+              </p>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteCustomer(postLiquidationTarget.id);
+                    if (selectedCustomerId === postLiquidationTarget.id) {
+                      setSelectedCustomerId(null);
+                    }
+                    setPostLiquidationTarget(null);
+                  }}
+                  className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Eliminar Deudor Liquidado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPostLiquidationTarget(null)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-center cursor-pointer"
+                >
+                  Conservar en Catálogo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Customer Confirmation Modal */}
+      {customerToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden text-xs">
+            <div className="px-6 py-4 bg-rose-600 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-700 rounded-xl">
+                  <UserX className="w-5 h-5 text-rose-200" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">Eliminar Cliente / Deudor</h3>
+                  <p className="text-[11px] text-rose-100">{customerToDelete.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setCustomerToDelete(null)} className="text-rose-100 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {customerToDelete.currentDebt <= 0 ? (
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-800">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    Cuenta Liquidada ($0.00 de Adeudo)
+                  </div>
+                  <p className="mt-1 text-xs text-emerald-800">
+                    El cliente <strong>{customerToDelete.name}</strong> no tiene ningún saldo pendiente. Puedes darlo de baja con total seguridad.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-900">
+                  <div className="flex items-center gap-2 font-bold text-sm text-amber-800">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                    Deuda Pendiente: {formatCurrency(customerToDelete.currentDebt)}
+                  </div>
+                  <p className="mt-1 text-xs text-amber-800">
+                    Este cliente aún tiene un saldo sin liquidar. Puedes cobrarlo antes de eliminarlo o darlo de baja directamente.
+                  </p>
+                </div>
+              )}
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1 text-slate-600">
+                <p><strong>Cliente:</strong> {customerToDelete.name}</p>
+                <p><strong>Teléfono:</strong> {customerToDelete.phone || 'No registrado'}</p>
+                {customerToDelete.idNumber && <p><strong>RFC / INE:</strong> {customerToDelete.idNumber}</p>}
+                {customerToDelete.documents && customerToDelete.documents.length > 0 && (
+                  <p><strong>Documentos en Expediente:</strong> {customerToDelete.documents.length} archivo(s)</p>
+                )}
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                {customerToDelete.currentDebt > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cust = customerToDelete;
+                      setCustomerToDelete(null);
+                      openPaymentModalForCustomer(cust, 'liquidar');
+                      setAutoDeleteAfterLiquidation(true);
+                    }}
+                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Liquidar Saldo a $0.00 y Eliminar
+                  </button>
+                )}
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCustomerToDelete(null)}
+                    className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCustomerConfirm(customerToDelete)}
+                    className="px-5 py-2 font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {customerToDelete.currentDebt <= 0 ? 'Sí, Eliminar Deudor Liquidado' : 'Eliminar de Todos Modos'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

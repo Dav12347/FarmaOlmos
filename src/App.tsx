@@ -662,6 +662,11 @@ export default function App() {
             onRegisterMovement={handleRegisterMovement}
             movementsCount={movements.length}
             onOpenPhotoSearch={() => setIsPhotoSearchOpen(true)}
+            customers={customers}
+            sales={sales}
+            movements={movements}
+            payments={payments}
+            cashCuts={cashCuts}
           />
         )}
 

@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Sale, InventoryMovement, Customer, Product, DebtPayment, PharmacySettings } from '../types/pharmacy';
+import { Sale, InventoryMovement, Customer, Product, DebtPayment, PharmacySettings, CashCut, CashMovement } from '../types/pharmacy';
 import { formatCurrency, formatDateTime, formatDate, getExpiryStatus } from './formatters';
 
 export interface MonthlyReportData {
@@ -655,4 +655,431 @@ export function exportWeeklyReportToExcel(data: WeeklyReportData) {
   XLSX.utils.book_append_sheet(wb, wsSales, 'Ventas Semanales');
 
   XLSX.writeFile(wb, `Reporte_Semanal_${data.startDate.toISOString().split('T')[0]}_${data.settings.name.replace(/\s+/g, '_')}.xlsx`);
+}
+
+// ============================================================================
+// FULL DATABASE & INVENTORY EXPORT FOR FUTURE UPDATES AND BACKUPS
+// ============================================================================
+
+export interface FullDatabaseExportData {
+  products: Product[];
+  customers: Customer[];
+  sales: Sale[];
+  movements: InventoryMovement[];
+  payments: DebtPayment[];
+  cashCuts: CashCut[];
+  cashMovements?: CashMovement[];
+  settings: PharmacySettings;
+}
+
+/**
+ * Exports complete database to a multi-tab formatted Excel file (.xlsx)
+ * Enables comprehensive auditing, accounting and offline data viewing.
+ */
+export function exportFullDatabaseToExcel(data: FullDatabaseExportData) {
+  const wb = XLSX.utils.book_new();
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  // 1. Resumen y Datos Generales de la Base de Datos
+  const totalStockUnits = data.products.reduce((sum, p) => sum + p.stock, 0);
+  const totalValuationCost = data.products.reduce((sum, p) => sum + (p.costPrice * p.stock), 0);
+  const totalValuationRetail = data.products.reduce((sum, p) => sum + (p.sellingPrice * p.stock), 0);
+  const totalSalesRevenue = data.sales.reduce((sum, s) => sum + s.total, 0);
+  const totalCustomerDebt = data.customers.reduce((sum, c) => sum + c.currentDebt, 0);
+  const totalCollectedDebt = data.payments.reduce((sum, p) => sum + p.amount, 0);
+
+  const overviewData = [
+    ['COPIA DE SEGURIDAD Y BASE DE DATOS COMPLETA - FARMACONTROL POS'],
+    ['Farmacia:', data.settings.name],
+    ['RFC:', data.settings.rfc || 'Sin RFC registrado'],
+    ['Licencia Sanitaria:', data.settings.licenseNumber || 'Sin licencia registrada'],
+    ['Teléfono:', data.settings.phone || '-'],
+    ['Dirección:', `${data.settings.address || ''}, ${data.settings.city || ''}`],
+    ['Fecha de Exportación:', new Date().toLocaleString('es-MX')],
+    ['Versión de Exportador:', 'v2.5 Full-Stack'],
+    [],
+    ['TABLA / MÓDULO', 'TOTAL REGISTROS', 'VALOR / MONTO (MXN)'],
+    ['1. Inventario (Catálogo de Productos)', data.products.length, totalValuationCost],
+    ['2. Clientes y Cuentas de Crédito', data.customers.length, totalCustomerDebt],
+    ['3. Historial de Ventas', data.sales.length, totalSalesRevenue],
+    ['4. Movimientos Kardex (Entradas/Salidas)', data.movements.length, data.movements.reduce((sum, m) => sum + m.totalValue, 0)],
+    ['5. Abonos y Pagos de Deuda', data.payments.length, totalCollectedDebt],
+    ['6. Cortes de Caja Realizados', data.cashCuts.length, '-'],
+    [],
+    ['INDICADORES CLAVE', 'VALOR'],
+    ['Total de Unidades en Existencia', `${totalStockUnits} piezas`],
+    ['Valuación del Inventario (al Costo)', formatCurrency(totalValuationCost)],
+    ['Valuación del Inventario (al Público)', formatCurrency(totalValuationRetail)],
+    ['Ganancia Bruta Potencial en Inventario', formatCurrency(totalValuationRetail - totalValuationCost)],
+    ['Total Cuentas por Cobrar (Deuda Activa)', formatCurrency(totalCustomerDebt)],
+  ];
+  const wsOverview = XLSX.utils.aoa_to_sheet(overviewData);
+  XLSX.utils.book_append_sheet(wb, wsOverview, 'Resumen Base Datos');
+
+  // 2. Inventario Detallado
+  const productRows = data.products.map(p => {
+    const exp = getExpiryStatus(p.expirationDate);
+    const unitProfit = p.sellingPrice - p.costPrice;
+    const profitMargin = p.sellingPrice > 0 ? ((unitProfit / p.sellingPrice) * 100).toFixed(1) + '%' : '0%';
+    return {
+      'Código Único': p.code || p.barcode,
+      'Código de Barras': p.barcode,
+      'Nombre del Producto': p.name,
+      'Descripción / Indicaciones': p.description || '-',
+      'Unidad de Medida': p.unitOfMeasure || 'Pieza',
+      'Genérico / Sustancia Activa': p.genericName || p.activeIngredient || '-',
+      'Presentación': p.presentation,
+      'Categoría': p.category,
+      'Departamento': p.department || 'farmacia',
+      'Precio de Costo': p.costPrice,
+      'Precio de Venta': p.sellingPrice,
+      'Existencia (Stock)': p.stock,
+      'Stock Mínimo': p.minStock,
+      'Valuación al Costo': p.costPrice * p.stock,
+      'Valuación al Público': p.sellingPrice * p.stock,
+      'Ganancia Unitario': unitProfit,
+      'Margen (%)': profitMargin,
+      'Número de Lote': p.batchNumber || '-',
+      'Fecha de Caducidad': p.expirationDate || '-',
+      'Días para Caducar': exp.daysLeft === 9999 ? 'N/A' : exp.daysLeft,
+      'Estado Caducidad': exp.label,
+      'Requiere Receta': p.prescriptionRequired ? 'SÍ' : 'NO',
+      'Ubicación en Farmacia': p.location || '-',
+      'Fecha Registro': p.createdAt ? formatDateTime(p.createdAt) : '-',
+      'Notas': p.notes || '-',
+    };
+  });
+  const wsProducts = XLSX.utils.json_to_sheet(productRows.length > 0 ? productRows : [{ Mensaje: 'Sin productos registrados' }]);
+  XLSX.utils.book_append_sheet(wb, wsProducts, 'Inventario (Catálogo)');
+
+  // 3. Clientes y Cuentas de Crédito
+  const custRows = data.customers.map(c => ({
+    'Nombre del Cliente': c.name,
+    'Teléfono': c.phone,
+    'Correo Electrónico': c.email || '-',
+    'Dirección': c.address || '-',
+    'Identificación / RFC / CURP': c.idNumber || '-',
+    'Límite de Crédito': c.creditLimit,
+    'Deuda Actual': c.currentDebt,
+    'Crédito Disponible': Math.max(0, c.creditLimit - c.currentDebt),
+    'Estado de Deuda': c.currentDebt > c.creditLimit ? 'LÍMITE EXCEDIDO' : c.currentDebt > 0 ? 'CON SALDO' : 'LIQUIDADO ($0.00)',
+    'Total Documentos Expediente': c.documents?.length || 0,
+    'Fecha Alta': c.createdAt ? formatDateTime(c.createdAt) : '-',
+    'Notas / Referencias': c.notes || '-',
+  }));
+  const wsCustomers = XLSX.utils.json_to_sheet(custRows.length > 0 ? custRows : [{ Mensaje: 'Sin clientes registrados' }]);
+  XLSX.utils.book_append_sheet(wb, wsCustomers, 'Clientes y Deudores');
+
+  // 4. Historial de Ventas
+  const salesRows: any[] = [];
+  data.sales.forEach(sale => {
+    const itemsSummary = sale.items.map(i => `${i.productName} (x${i.quantity})`).join(' | ');
+    salesRows.push({
+      'Folio Venta': sale.folio,
+      'Fecha y Hora': formatDateTime(sale.date),
+      'Cliente': sale.customerName || 'Público General',
+      'Total Artículos': sale.items.reduce((s, it) => s + it.quantity, 0),
+      'Desglose Productos': itemsSummary,
+      'Subtotal': sale.subtotal,
+      'Descuento Total': sale.discountTotal,
+      'Total Pagado': sale.total,
+      'Método de Pago': sale.isCredit ? 'Crédito / Fiado' : sale.paymentMethod.toUpperCase(),
+      'Monto Recibido': sale.amountPaid,
+      'Cambio': sale.change,
+      'Estado': sale.status === 'cancelled' ? 'CANCELADA' : sale.status === 'refunded' ? 'DEVUELTA' : 'COMPLETADA',
+      'Vendedor / Cajero': sale.seller,
+      'Notas': sale.notes || '-',
+    });
+  });
+  const wsSales = XLSX.utils.json_to_sheet(salesRows.length > 0 ? salesRows : [{ Mensaje: 'Sin ventas registradas' }]);
+  XLSX.utils.book_append_sheet(wb, wsSales, 'Historial de Ventas');
+
+  // 5. Kardex y Movimientos de Inventario
+  const movRows: any[] = [];
+  data.movements.forEach(m => {
+    const itemsStr = m.items.map(it => `${it.productName} (x${it.quantity} @ ${formatCurrency(it.costPrice)})`).join(' | ');
+    movRows.push({
+      'Folio Movimiento': m.folio,
+      'Tipo': m.type === 'entry' ? 'ENTRADA' : 'SALIDA',
+      'Motivo': m.reason.toUpperCase(),
+      'Fecha y Hora': formatDateTime(m.date),
+      'Proveedor / Destino': m.supplierOrDestination || '-',
+      'Factura / Remisión': m.referenceInvoice || '-',
+      'Total Unidades': m.items.reduce((s, it) => s + it.quantity, 0),
+      'Detalle Medicamentos': itemsStr,
+      'Valor Total Movimiento': m.totalValue,
+      'Registrado Por': m.registeredBy,
+      'Notas': m.notes || '-',
+    });
+  });
+  const wsMov = XLSX.utils.json_to_sheet(movRows.length > 0 ? movRows : [{ Mensaje: 'Sin movimientos registrados' }]);
+  XLSX.utils.book_append_sheet(wb, wsMov, 'Kardex (Movimientos)');
+
+  // 6. Abonos y Cobranza
+  const payRows = data.payments.map(p => ({
+    'Folio Abono': p.folio,
+    'Fecha y Hora': formatDateTime(p.date),
+    'Cliente': p.customerName,
+    'Monto Abonado': p.amount,
+    'Forma de Pago': p.paymentMethod.toUpperCase(),
+    'Saldo Anterior': p.previousDebt,
+    'Saldo Restante': p.remainingDebt,
+    'Registrado Por': p.registeredBy,
+    'Notas': p.notes || '-',
+  }));
+  const wsPay = XLSX.utils.json_to_sheet(payRows.length > 0 ? payRows : [{ Mensaje: 'Sin abonos registrados' }]);
+  XLSX.utils.book_append_sheet(wb, wsPay, 'Abonos y Cobranza');
+
+  // 7. Cortes de Caja
+  const cashRows = data.cashCuts.map(c => ({
+    'Folio Corte': c.folio,
+    'Apertura': formatDateTime(c.openedAt),
+    'Cierre': formatDateTime(c.closedAt),
+    'Cajero': c.cashier,
+    'Fondo Inicial': c.initialCash,
+    'Ventas Efectivo': c.cashSalesTotal,
+    'Ventas Tarjeta': c.cardSalesTotal,
+    'Ventas Transferencia': c.transferSalesTotal,
+    'Ventas Crédito': c.creditSalesTotal,
+    'Abonos Cobrados': c.debtPaymentsCashTotal,
+    'Efectivo Esperado': c.expectedCash,
+    'Efectivo Contado (Arqueo)': c.actualCashCount,
+    'Diferencia (Sobrante/Faltante)': c.difference,
+    'Retiro de Efectivo': c.cashWithdrawal,
+    'Fondo Próximo Turno': c.remainingCashForNextShift,
+    'Notas': c.notes || '-',
+  }));
+  const wsCash = XLSX.utils.json_to_sheet(cashRows.length > 0 ? cashRows : [{ Mensaje: 'Sin cortes de caja' }]);
+  XLSX.utils.book_append_sheet(wb, wsCash, 'Cortes de Caja');
+
+  const fileName = `Base_de_Datos_Completa_${data.settings.name.replace(/\s+/g, '_')}_${dateStr}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+}
+
+/**
+ * Exports existing inventory into an Excel spreadsheet pre-configured with
+ * the exact headers and format expected by the Bulk Stock Entry / Excel Updater.
+ * The user can edit prices, stock, batches, etc. and re-import immediately.
+ */
+export function exportInventoryTemplateForUpdate(products: Product[], settings?: PharmacySettings) {
+  const wb = XLSX.utils.book_new();
+
+  const rows = products.map(p => ({
+    'Código de Barras': p.barcode || p.code,
+    'Código / SKU': p.code || p.barcode,
+    'Nombre del Producto': p.name,
+    'Existencia Actual': p.stock,
+    'Cantidad Entrada': 0, // Listo para que el usuario escriba cuánto surtirá
+    'Precio Costo Unitario': p.costPrice,
+    'Precio Venta Sugerido': p.sellingPrice,
+    'Número de Lote': p.batchNumber || '',
+    'Fecha Caducidad (AAAA-MM-DD)': p.expirationDate || '',
+    'Categoría': p.category || 'Analgésicos',
+    'Departamento (farmacia/bebidas/dulces/botanas/higiene/otros)': p.department || 'farmacia',
+    'Unidad de Medida': p.unitOfMeasure || 'Pieza',
+    'Presentación': p.presentation || '',
+    'Sustancia Activa': p.activeIngredient || p.genericName || '',
+    'Ubicación': p.location || '',
+    'Requiere Receta (SI/NO)': p.prescriptionRequired ? 'SI' : 'NO',
+  }));
+
+  // If no products, supply 3 sample rows so the user has an immediate template
+  const exportRows = rows.length > 0 ? rows : [
+    {
+      'Código de Barras': '7501008492011',
+      'Código / SKU': 'MED-7501001',
+      'Nombre del Producto': 'Paracetamol 500mg (20 tabletas)',
+      'Existencia Actual': 0,
+      'Cantidad Entrada': 25,
+      'Precio Costo Unitario': 18.50,
+      'Precio Venta Sugerido': 38.00,
+      'Número de Lote': 'L-24098A',
+      'Fecha Caducidad (AAAA-MM-DD)': '2027-10-15',
+      'Categoría': 'Analgésicos',
+      'Departamento (farmacia/bebidas/dulces/botanas/higiene/otros)': 'farmacia',
+      'Unidad de Medida': 'Caja',
+      'Presentación': 'Caja con 20 tabletas',
+      'Sustancia Activa': 'Paracetamol',
+      'Ubicación': 'Estante A-1',
+      'Requiere Receta (SI/NO)': 'NO',
+    }
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(exportRows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Actualizar Inventario');
+
+  // Instructions Tab
+  const instructions = [
+    ['INSTRUCCIONES PARA ACTUALIZACIÓN MASIVA DE INVENTARIO'],
+    [''],
+    ['1. Este archivo contiene tu catálogo actual listo para actualizar existencias y precios.'],
+    ['2. Modifica la columna "Precio Costo Unitario" o "Precio Venta Sugerido" si deseas cambiar precios.'],
+    ['3. Ingresa en "Cantidad Entrada" el número de piezas que compraste para sumarlas a tu stock.'],
+    ['4. Si agregas un medicamento nuevo que no estaba en la lista, simplemente llena una nueva fila al final.'],
+    ['5. Guarda este archivo Excel y súbelo en la pestaña "Inventario" -> botón "📊 Entrada desde Excel".'],
+    ['6. El sistema detectará automáticamente productos existentes para actualizarlos y creará los nuevos.'],
+  ];
+  const wsInst = XLSX.utils.aoa_to_sheet(instructions);
+  XLSX.utils.book_append_sheet(wb, wsInst, 'Instrucciones');
+
+  const dateStr = new Date().toISOString().split('T')[0];
+  const farmName = settings?.name ? settings.name.replace(/\s+/g, '_') : 'Farmacia';
+  XLSX.writeFile(wb, `Plantilla_Actualizacion_Inventario_${farmName}_${dateStr}.xlsx`);
+}
+
+/**
+ * Exports products catalog to UTF-8 CSV with BOM for universal Excel compatibility.
+ */
+export function exportInventoryToCSV(products: Product[]) {
+  const headers = [
+    'Codigo_Barras',
+    'SKU_Codigo',
+    'Nombre_Medicamento',
+    'Sustancia_Activa',
+    'Presentacion',
+    'Categoria',
+    'Departamento',
+    'Precio_Costo',
+    'Precio_Venta',
+    'Stock_Actual',
+    'Stock_Minimo',
+    'Lote',
+    'Fecha_Caducidad',
+    'Requiere_Receta',
+    'Ubicacion'
+  ];
+
+  const escapeCSV = (val: any) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const csvRows: string[] = [];
+  csvRows.push(headers.join(','));
+
+  products.forEach(p => {
+    const row = [
+      escapeCSV(p.barcode),
+      escapeCSV(p.code),
+      escapeCSV(p.name),
+      escapeCSV(p.activeIngredient || p.genericName || ''),
+      escapeCSV(p.presentation),
+      escapeCSV(p.category),
+      escapeCSV(p.department || 'farmacia'),
+      p.costPrice,
+      p.sellingPrice,
+      p.stock,
+      p.minStock,
+      escapeCSV(p.batchNumber || ''),
+      escapeCSV(p.expirationDate || ''),
+      escapeCSV(p.prescriptionRequired ? 'SI' : 'NO'),
+      escapeCSV(p.location || ''),
+    ];
+    csvRows.push(row.join(','));
+  });
+
+  const csvContent = '\uFEFF' + csvRows.join('\n'); // Add BOM for Excel UTF-8 support
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Catalogo_Inventario_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Generates a clean printable PDF sheet for Physical Inventory Counting & Shelf Audits
+ */
+export function exportInventoryPhysicalAuditPDF(products: Product[], settings: PharmacySettings) {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const dateStr = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Header Banner
+  doc.setFillColor(15, 118, 110);
+  doc.rect(0, 0, 210, 24, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(settings.name.toUpperCase(), 14, 10);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`HOJA DE CONTEO FÍSICO Y AUDITORÍA DE INVENTARIO | ${dateStr.toUpperCase()}`, 14, 17);
+
+  // Subtitle info
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Total de Ítems en Catálogo: ${products.length} productos | Auditor / Responsable: __________________________  Firma: ______________`, 14, 30);
+
+  // Table Body with blank lines for physical count
+  const sortedProducts = [...products].sort((a, b) => (a.location || '').localeCompare(b.location || '') || a.name.localeCompare(b.name));
+
+  const tableBody = sortedProducts.map(p => {
+    return [
+      '[  ]',
+      p.barcode || p.code,
+      `${p.name}\n${p.presentation || ''}`,
+      p.location || 'S/U',
+      p.batchNumber || '-',
+      p.expirationDate ? formatDate(p.expirationDate) : '-',
+      p.stock.toString(),
+      '_______',
+      '_______',
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['[X]', 'Código', 'Medicamento / Presentación', 'Ubicación', 'Lote', 'Caducidad', 'Sistema', 'Conteo Físico', 'Diferencia']],
+    body: tableBody.length > 0 ? tableBody : [['-', '-', 'Sin productos en inventario', '-', '-', '-', '0', '___', '___']],
+    theme: 'grid',
+    headStyles: { fillColor: [15, 118, 110], fontSize: 7.5, halign: 'center' },
+    styles: { fontSize: 7, cellPadding: 2 },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 52 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 18 },
+      5: { cellWidth: 18 },
+      6: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+      7: { cellWidth: 20, halign: 'center' },
+      8: { cellWidth: 18, halign: 'center' },
+    },
+    margin: { left: 10, right: 10 },
+  });
+
+  // Footer on all pages
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Página ${i} de ${pageCount} - FarmaControl POS Auditoría Sanitaria`, 14, 290);
+    doc.text(`Fecha Impresión: ${new Date().toLocaleString('es-MX')}`, 140, 290);
+  }
+
+  doc.save(`Hoja_Auditoria_Inventario_${settings.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
+}
+
+/**
+ * Fast JSON export for catalog only
+ */
+export function exportProductsToJSON(products: Product[]) {
+  const dataStr = JSON.stringify(products, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Inventario_Productos_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

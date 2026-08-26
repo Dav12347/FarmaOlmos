@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { PharmacySettings, AppUser } from '../../types/pharmacy';
 import { StorageManager } from '../../utils/storage';
 import { 
+  exportFullDatabaseToExcel, 
+  exportInventoryTemplateForUpdate, 
+  exportInventoryToCSV 
+} from '../../utils/exportUtils';
+import { 
   Settings, 
   Store, 
   Save, 
@@ -19,7 +24,10 @@ import {
   Laptop,
   User,
   KeyRound,
-  LogOut
+  LogOut,
+  FileSpreadsheet,
+  FileText,
+  Database
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -85,6 +93,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  const handleExportFullDatabaseExcel = () => {
+    const products = StorageManager.getProducts();
+    const customers = StorageManager.getCustomers();
+    const sales = StorageManager.getSales();
+    const movements = StorageManager.getMovements();
+    const payments = StorageManager.getPayments();
+    const cashCuts = StorageManager.getCashCuts();
+    const cashMovements = StorageManager.getCashMovements();
+
+    exportFullDatabaseToExcel({
+      products,
+      customers,
+      sales,
+      movements,
+      payments,
+      cashCuts,
+      cashMovements,
+      settings: formData,
+    });
+  };
+
+  const handleExportUpdateTemplateExcel = () => {
+    const products = StorageManager.getProducts();
+    exportInventoryTemplateForUpdate(products, formData);
+  };
+
+  const handleExportCSV = () => {
+    const products = StorageManager.getProducts();
+    exportInventoryToCSV(products);
+  };
+
   const handleExportBackup = () => {
     const jsonStr = StorageManager.exportBackupJSON();
     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -136,7 +175,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-4xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
       
       {/* Header */}
       <div>
@@ -451,37 +490,125 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Database Backup & Restore Box */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4 text-xs">
-        <div className="flex items-center gap-2 pb-3 border-b border-slate-200 font-bold text-sm text-slate-900">
-          <ShieldCheck className="w-4 h-4 text-teal-600" />
-          <span>Respaldo y Seguridad de Base de Datos</span>
+      {/* Database Backup & Export Center */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5 text-xs">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+          <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
+            <ShieldCheck className="w-5 h-5 text-teal-600" />
+            <span>Centro de Exportación y Respaldo de Base de Datos</span>
+          </div>
+          <span className="px-2.5 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-full font-bold text-[11px]">
+            100% Portabilidad de Datos
+          </span>
         </div>
 
-        <p className="text-slate-600">
-          Descargue una copia de seguridad en formato JSON de sus productos, clientes, ventas y deudas para guardarla en su computadora o transferirla a otro equipo.
+        <p className="text-slate-600 leading-relaxed">
+          Exporta tu información para respaldarla, auditarla en Excel o preparar actualizaciones masivas de precios y existencias en hojas de cálculo.
         </p>
 
-        <div className="flex flex-wrap items-center gap-3 pt-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          {/* Card 1: Base de Datos Completa en Excel */}
+          <div className="border border-teal-200 bg-teal-50/40 rounded-xl p-4 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-teal-700" />
+                <h4 className="font-bold text-slate-900 text-xs">Base de Datos Completa en Excel (.xlsx)</h4>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                Exporta todas las tablas de tu farmacia (Inventario, Clientes/Deudas, Ventas, Kardex, Abonos y Cortes) en 7 hojas organizadas.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportFullDatabaseExcel}
+              className="w-full px-3.5 py-2.5 bg-teal-700 hover:bg-teal-600 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Descargar Base de Datos (.xlsx)</span>
+            </button>
+          </div>
+
+          {/* Card 2: Plantilla para Actualización Masiva de Inventario */}
+          <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-4 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-emerald-700" />
+                <h4 className="font-bold text-slate-900 text-xs">Plantilla de Inventario para Actualización</h4>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                Descarga tus medicamentos actuales pre-formateados para editar costos, precios o stock en Excel y re-importar con 1 clic.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportUpdateTemplateExcel}
+              className="w-full px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Descargar Plantilla (.xlsx)</span>
+            </button>
+          </div>
+
+          {/* Card 3: Respaldo Técnico JSON */}
+          <div className="border border-slate-200 bg-slate-50 rounded-xl p-4 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-slate-700" />
+                <h4 className="font-bold text-slate-900 text-xs">Copia de Seguridad Integral (JSON)</h4>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                Copia técnica ligera de toda la base de datos para transferir a otro equipo o guardar en una memoria USB.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportBackup}
+              className="w-full px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Descargar Respaldo (JSON)</span>
+            </button>
+          </div>
+
+          {/* Card 4: Restaurar Base de Datos */}
+          <div className="border border-slate-200 bg-slate-50 rounded-xl p-4 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Upload className="w-4 h-4 text-teal-700" />
+                <h4 className="font-bold text-slate-900 text-xs">Restaurar Base de Datos desde Respaldo</h4>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                Carga un archivo JSON previamente respaldado para restablecer productos, deudas, ventas y configuraciones.
+              </p>
+            </div>
+            <label className="w-full px-3.5 py-2.5 bg-white border-2 border-teal-600 hover:bg-teal-50 text-teal-800 font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors text-center">
+              <Upload className="w-4 h-4 text-teal-600" />
+              <span>Seleccionar Archivo de Respaldo (.json)</span>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportBackup}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+        </div>
+
+        {/* Quick CSV Export */}
+        <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+          <span className="text-slate-500 text-[11px]">
+            ¿Necesitas un formato plano compatible con otros sistemas?
+          </span>
           <button
             type="button"
-            onClick={handleExportBackup}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
+            onClick={handleExportCSV}
+            className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-lg flex items-center gap-1 text-[11px] cursor-pointer"
           >
-            <Download className="w-4 h-4 text-white" />
-            <span>Descargar Respaldo Completo (JSON)</span>
+            <FileText className="w-3.5 h-3.5 text-blue-600" />
+            <span>Exportar Catálogo a CSV</span>
           </button>
-
-          <label className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer">
-            <Upload className="w-4 h-4 text-teal-600" />
-            <span>Restaurar desde Respaldo</span>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportBackup}
-              className="hidden"
-            />
-          </label>
         </div>
       </div>
 

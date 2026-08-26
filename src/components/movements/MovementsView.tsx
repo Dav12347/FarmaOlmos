@@ -241,57 +241,57 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
   }, [movements]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900  flex items-center gap-2">
-            <ArrowLeftRight className="w-5 h-5 text-teal-600" />
-            Entradas y Salidas de Inventario (Kardex)
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+            <ArrowLeftRight className="w-5 h-5 text-teal-600 shrink-0" />
+            <span>Entradas y Salidas de Inventario (Kardex)</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Registro de compras a proveedores, ajustes, mermas, caducidades y donaciones
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Cargar Ticket o Factura PDF */}
           <button
             onClick={() => setIsSupplierTicketModalOpen(true)}
-            className="px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
             title="Ingresar medicamentos reconociendo tickets de compra o facturas PDF con IA"
           >
             <FileText className="w-4 h-4 text-teal-300" />
-            <span>📥 Entrada con Ticket / PDF</span>
+            <span>📥 Ticket / PDF</span>
           </button>
 
           {/* Importar con Excel */}
           <button
             onClick={() => setIsStockEntryExcelModalOpen(true)}
-            className="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
             title="Cargar entrada masiva de compras desde archivo Excel (.xlsx / .csv)"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>📊 Entrada desde Excel</span>
+            <span>📊 Excel</span>
           </button>
 
           {/* Salida / Merma */}
           <button
             onClick={() => openNewMovementModal('exit')}
-            className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
           >
             <ArrowUpRight className="w-4 h-4" />
-            <span>- Salida / Merma</span>
+            <span>- Merma</span>
           </button>
 
           {/* Registrar Entrada Manual */}
           <button
             onClick={() => openNewMovementModal('entry')}
-            className="px-3 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
           >
             <ArrowDownLeft className="w-4 h-4" />
-            <span>+ Entrada Manual</span>
+            <span>+ Entrada</span>
           </button>
         </div>
       </div>

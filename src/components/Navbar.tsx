@@ -85,18 +85,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       {/* Top Navbar Header */}
       <header className="sticky top-0 z-40 w-full bg-slate-900 border-b border-slate-800 text-white select-none shadow-md">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
           
           {/* Zone 1: Brand Title */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <div 
               onClick={() => setActiveTab('pos')} 
-              className="flex items-center gap-2 cursor-pointer group"
+              className="flex items-center gap-1.5 sm:gap-2 cursor-pointer group"
             >
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-teal-600 flex items-center justify-center font-bold text-white shadow-xs group-hover:bg-teal-500 transition-colors">
-                <span className="text-base sm:text-lg">✚</span>
+              <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-teal-600 flex items-center justify-center font-bold text-white shadow-xs group-hover:bg-teal-500 transition-colors">
+                <span className="text-sm sm:text-lg">✚</span>
               </div>
-              <span className="text-base sm:text-lg font-bold tracking-tight text-white font-mono uppercase whitespace-nowrap">
+              <span className="text-sm sm:text-lg font-bold tracking-tight text-white font-mono uppercase whitespace-nowrap">
                 FarmaControl
               </span>
             </div>
@@ -105,16 +105,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button 
               type="button"
               onClick={handleQuickSync}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:py-1 rounded-full border text-[10px] sm:text-[11px] font-medium transition-all cursor-pointer ${
                 isCloudConnected 
                   ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/80 hover:border-emerald-400' 
                   : 'bg-amber-950/60 border-amber-500/40 text-amber-300 hover:bg-amber-900/80'
               }`}
               title="Haz clic para forzar sincronización con la nube"
             >
-              <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-teal-300 animate-ping' : isCloudConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="whitespace-nowrap font-medium">
+              <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${isSyncing ? 'bg-teal-300 animate-ping' : isCloudConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="whitespace-nowrap font-medium hidden xs:inline sm:inline">
                 {isSyncing ? 'Sincronizando...' : isCloudConnected ? 'Nube en Vivo' : 'Reconectando'}
+              </span>
+              <span className="xs:hidden sm:hidden text-[9px] font-bold">
+                {isSyncing ? '...' : isCloudConnected ? 'Nube' : '!'}
               </span>
             </button>
           </div>
@@ -151,14 +154,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Zone 3: Primary Actions (Photo Search + Cash Cut + Quick Sale + User Profile) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {onOpenCashCut && (
               <button
                 onClick={onOpenCashCut}
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 hover:border-teal-500/50 text-xs font-bold py-2 px-2.5 sm:px-3 rounded-lg transition-all cursor-pointer whitespace-nowrap shadow-xs"
+                className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 hover:border-teal-500/50 text-xs font-bold py-1.5 px-2 sm:py-2 sm:px-3 rounded-lg transition-all cursor-pointer whitespace-nowrap shadow-xs"
                 title="Corte de caja, arqueo y movimientos de efectivo"
               >
-                <Calculator className="w-4 h-4 text-teal-400 shrink-0" />
+                <Calculator className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-400 shrink-0" />
                 <span className="hidden sm:inline">Corte</span>
               </button>
             )}
@@ -166,11 +169,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             {onOpenPhotoSearch && (
               <button
                 onClick={onOpenPhotoSearch}
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/40 text-xs font-bold py-2 px-2.5 sm:px-3 rounded-lg transition-all cursor-pointer whitespace-nowrap shadow-xs"
+                className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/40 text-xs font-bold py-1.5 px-2 sm:py-2 sm:px-3 rounded-lg transition-all cursor-pointer whitespace-nowrap shadow-xs"
                 title="Buscar producto por foto (cámara o galería)"
               >
-                <Camera className="w-4 h-4 text-teal-400 shrink-0" />
-                <span className="hidden sm:inline">Buscar x Foto</span>
+                <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-400 shrink-0" />
+                <span className="hidden sm:inline">Foto</span>
               </button>
             )}
 
@@ -179,9 +182,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setActiveTab('pos');
                 onQuickNewSale();
               }}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs sm:text-sm font-semibold py-2 px-3 sm:px-3.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+              className="flex items-center gap-1 sm:gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs sm:text-sm font-semibold py-1.5 px-2.5 sm:py-2 sm:px-3.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap shadow-xs"
             >
-              <ShoppingCart className="w-4 h-4 shrink-0" />
+              <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span>+ Cobro</span>
             </button>
 
@@ -191,7 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-1.5 px-2 sm:px-2.5 rounded-lg transition-all cursor-pointer shadow-xs"
+                  className="flex items-center gap-1 sm:gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-1 px-1.5 sm:py-1.5 sm:px-2.5 rounded-lg transition-all cursor-pointer shadow-xs"
                   title={`Sesión activa: ${currentUser.name} (${currentUser.username})`}
                 >
                   <div className="w-6 h-6 rounded-md bg-teal-600 text-white font-bold text-[10px] flex items-center justify-center">
@@ -205,16 +208,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {currentUser.role === 'admin' ? 'Administrador' : 'Cajero'}
                     </span>
                   </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronDown className="w-3 h-3 text-slate-400 hidden sm:block" />
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={onOpenLogin}
-                  className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold py-2 px-2.5 sm:px-3 rounded-lg transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                  className="flex items-center gap-1 bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold py-1.5 px-2 sm:py-2 sm:px-3 rounded-lg transition-all cursor-pointer shadow-xs whitespace-nowrap"
                   title="Iniciar sesión para sincronizar multidispositivo"
                 >
-                  <KeyRound className="w-4 h-4" />
+                  <KeyRound className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Iniciar Sesión</span>
                 </button>
               )}

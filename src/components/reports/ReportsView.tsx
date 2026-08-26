@@ -548,7 +548,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   }, [activeTab, dailySales, weeklySales, monthlySales, customSales, searchQuery]);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 space-y-6">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
       
       {/* 1. Header & Main Period Selector Navigation */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
