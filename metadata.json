@@ -1,0 +1,8 @@
+{
+  "name": "FarmaControl POS & Deudas",
+  "description": "Sistema de punto de venta farmacéutico con control de entradas, salidas, créditos y deudas de clientes con adjuntos de foto/PDF, y reportes de ventas diarias, semanales y mensuales con corte de caja.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

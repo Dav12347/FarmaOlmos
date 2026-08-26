@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   FARMANET / POS HIGH CONTRAST THEME SYSTEM
+   Guarantees 100% visible, crisp text on all cards, inputs, tables & modals.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+  --text-main: #0f172a;
+  --text-sub: #334155;
+  --text-muted: #475569;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --border-color: #cbd5e1;
+}
+
+html, body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
+  touch-action: manipulation;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================
+   UNIVERSAL TEXT VISIBILITY RULES
+   ========================================== */
+
+/* Universal light container text color guarantee */
+body, 
+main, 
+section, 
+div:not([class*="bg-slate-900"]):not([class*="bg-slate-800"]):not([class*="bg-teal-600"]):not([class*="bg-teal-700"]):not([class*="bg-emerald-600"]):not([class*="bg-rose-600"]):not([class*="bg-blue-600"]):not([class*="bg-indigo-600"]):not([class*="bg-amber-600"]):not([class*="bg-black"]) {
+  color: #0f172a;
+}
+
+/* Headings & Titles are always sharp slate-900 */
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+  color: #0f172a !important;
+  font-weight: 700;
+}
+
+/* Fix paragraphs & labels */
+p, label, span:not([class*="text-white"]):not([class*="text-teal-"]):not([class*="text-rose-"]):not([class*="text-emerald-"]):not([class*="text-amber-"]):not([class*="text-blue-"]) {
+  color: inherit;
+}
+
+/* Explicit text color on white/light backgrounds */
+.bg-white,
+.bg-slate-50,
+.bg-slate-100,
+.bg-slate-200,
+.bg-gray-50,
+.bg-gray-100,
+.card,
+.modal-content {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Cards & Modals */
+.card,
+.modal-content {
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* ==========================================
+   FORM INPUTS, SELECTS & TEXTAREAS
+   ========================================== */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="date"],
+input[type="search"],
+select,
+textarea,
+.form-control,
+.form-select {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border: 1.5px solid #94a3b8 !important;
+  font-weight: 600 !important;
+}
+
+input::placeholder,
+textarea::placeholder,
+.form-control::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.form-control:focus,
+.form-select:focus {
+  border-color: #0d9488 !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.25) !important;
+  outline: none !important;
+}
+
+/* ==========================================
+   TABLES & LISTS
+   ========================================== */
+.table {
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+  background-color: #ffffff !important;
+}
+
+.table th,
+thead th {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table td,
+tbody td {
+  color: #1e293b !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  vertical-align: middle;
+  background-color: #ffffff !important;
+}
+
+.table-hover tbody tr:hover td,
+tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* ==========================================
+   BUTTON CONTRAST ENFORCEMENT
+   ========================================== */
+/* Dark action buttons must have crisp white text */
+.bg-teal-600,
+.bg-teal-700,
+.bg-slate-900,
+.bg-slate-800,
+.bg-rose-600,
+.bg-emerald-600,
+.bg-emerald-700,
+.bg-blue-600,
+.bg-indigo-600,
+.bg-amber-600,
+.btn-primary,
+.btn-success,
+.btn-danger,
+.btn-dark {
+  color: #ffffff !important;
+}
+
+.bg-teal-600 *,
+.bg-teal-700 *,
+.bg-slate-900 *,
+.bg-slate-800 *,
+.bg-rose-600 *,
+.bg-emerald-600 *,
+.bg-emerald-700 *,
+.bg-blue-600 *,
+.bg-indigo-600 *,
+.bg-amber-600 *,
+.btn-primary *,
+.btn-success *,
+.btn-danger *,
+.btn-dark * {
+  color: #ffffff !important;
+}
+
+/* Light buttons must have crisp dark text */
+.bg-slate-100,
+.bg-slate-200,
+.bg-gray-100,
+.bg-gray-200,
+.btn-light,
+.btn-secondary {
+  color: #0f172a !important;
+}
+
+/* Navbar Top Bar Header Specifics */
+header {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+header * {
+  color: #f8fafc !important;
+}
+
+header .text-teal-400 {
+  color: #2dd4bf !important;
+}
+
+header .text-amber-400 {
+  color: #fbbf24 !important;
+}
+
+header .text-rose-400 {
+  color: #fb7185 !important;
+}
+
+header .text-emerald-400 {
+  color: #34d399 !important;
+}
+
+/* Reticle scan laser animation */
+@keyframes scanLaser {
+  0% { top: 5%; opacity: 0.8; }
+  50% { top: 90%; opacity: 1; }
+  100% { top: 5%; opacity: 0.8; }
+}
+
+.animate-scan-laser {
+  animation: scanLaser 2.2s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVE ENHANCEMENTS (Bootstrap 5 & Touch Support)
+   ========================================================================== */
+
+/* Safe area insets for notched phones (iPhone, Modern Android) */
+.safe-area-inset-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Fluid responsive tables with native mobile momentum scrolling */
+.table-responsive,
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* Touch targets on mobile / tablet */
+@media (max-width: 1024px) {
+  button, 
+  .btn, 
+  input[type="button"], 
+  input[type="submit"],
+  .form-select,
+  .nav-link {
+    min-height: 38px;
+  }
+
+  /* Modals on small screens */
+  .modal-dialog {
+    margin: 0.5rem auto;
+  }
+}
+
+/* Extra small mobile screens (<= 640px) */
+@media (max-width: 640px) {
+  h1, .h1 {
+    font-size: 1.25rem !important;
+  }
+  
+  h2, .h2 {
+    font-size: 1.1rem !important;
+  }
+
+  /* Prevent overflow on small screens */
+  .container-fluid {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+}
+
+/* Tablet screens (641px - 1024px) */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .container-fluid {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+

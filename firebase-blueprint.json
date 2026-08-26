@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Artículos y medicamentos del catálogo de la farmacia",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "barcode": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "unitOfMeasure": { "type": "string" },
+        "genericName": { "type": "string" },
+        "activeIngredient": { "type": "string" },
+        "presentation": { "type": "string" },
+        "category": { "type": "string" },
+        "department": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "batchNumber": { "type": "string" },
+        "expirationDate": { "type": "string" },
+        "prescriptionRequired": { "type": "boolean" },
+        "location": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "costPrice", "sellingPrice", "stock"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Clientes registrados para cuentas de crédito y fiado",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "idNumber": { "type": "string" },
+        "creditLimit": { "type": "number" },
+        "currentDebt": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "creditLimit", "currentDebt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Registro de tickets y ventas cobradas en el POS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "folio": { "type": "string" },
+        "date": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "change": { "type": "number" },
+        "seller": { "type": "string" },
+        "isCredit": { "type": "boolean" },
+        "isSettled": { "type": "boolean" }
+      },
+      "required": ["id", "folio", "date", "total", "paymentMethod"]
+    },
+    "InventoryMovement": {
+      "title": "InventoryMovement",
+      "description": "Kardex de entradas y salidas de inventario",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "folio": { "type": "string" },
+        "type": { "type": "string" },
+        "reason": { "type": "string" },
+        "date": { "type": "string" },
+        "totalValue": { "type": "number" },
+        "registeredBy": { "type": "string" }
+      },
+      "required": ["id", "folio", "type", "reason", "date", "totalValue"]
+    },
+    "DebtPayment": {
+      "title": "DebtPayment",
+      "description": "Abonos y liquidaciones de deudas de clientes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "folio": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "previousDebt": { "type": "number" },
+        "remainingDebt": { "type": "number" }
+      },
+      "required": ["id", "folio", "customerId", "amount", "date"]
+    },
+    "PharmacySettings": {
+      "title": "PharmacySettings",
+      "description": "Configuración general de la farmacia",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "commercialName": { "type": "string" },
+        "phone": { "type": "string" },
+        "ticketMessage": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "CashCut": {
+      "title": "CashCut",
+      "description": "Corte y arqueo de caja con desglose de ventas y saldo final",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "folio": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "cashier": { "type": "string" },
+        "initialCash": { "type": "number" },
+        "cashSalesTotal": { "type": "number" },
+        "cardSalesTotal": { "type": "number" },
+        "expectedCash": { "type": "number" },
+        "actualCashCount": { "type": "number" },
+        "difference": { "type": "number" }
+      },
+      "required": ["id", "folio", "openedAt", "closedAt", "expectedCash", "actualCashCount"]
+    },
+    "CashMovement": {
+      "title": "CashMovement",
+      "description": "Entradas y salidas manuales de efectivo de caja",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "folio": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "folio", "type", "amount", "reason", "date"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Catálogo de medicamentos y artículos"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Clientes con crédito"
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Ventas realizadas"
+    },
+    "/movements/{movementId}": {
+      "schema": "InventoryMovement",
+      "description": "Movimientos de entrada y salida"
+    },
+    "/payments/{paymentId}": {
+      "schema": "DebtPayment",
+      "description": "Abonos a cuentas"
+    },
+    "/settings/{settingId}": {
+      "schema": "PharmacySettings",
+      "description": "Configuración del negocio"
+    },
+    "/cash_cuts/{cutId}": {
+      "schema": "CashCut",
+      "description": "Cortes de caja y arqueos de turno"
+    },
+    "/cash_movements/{movId}": {
+      "schema": "CashMovement",
+      "description": "Entradas y salidas de efectivo"
+    }
+  }
+}
