@@ -175,8 +175,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const dailyCardSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'card').reduce((sum, s) => sum + s.total, 0), [dailySales]);
   const dailyTransferSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.total, 0), [dailySales]);
   const dailyCreditSales = useMemo(() => dailySales.filter(s => s.isCredit).reduce((sum, s) => sum + s.total, 0), [dailySales]);
-  const dailyCollectedDebtPayments = useMemo(() => dailyPayments.reduce((sum, p) => sum + p.amount, 0), [dailyPayments]);
-  const dailyTotalCashInDrawer = dailyCashSales + dailyCollectedDebtPayments;
+  const dailyTotalCashInDrawer = dailyCashSales;
 
   // Hourly Breakdown for Daily Chart
   const dailyHourlyData = useMemo(() => {
@@ -756,20 +755,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </div>
             </div>
 
-            {/* Cash in Drawer Today (Ventas Efectivo + Abonos) */}
+            {/* Cash in Drawer Today (Ventas Efectivo) */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase text-slate-600 tracking-wider">Efectivo Total en Caja</span>
+                <span className="text-xs font-bold uppercase text-slate-600 tracking-wider">Efectivo Cobrado en Ventas</span>
                 <span className="p-1.5 bg-amber-50 text-amber-700 rounded-lg">
                   <Wallet className="w-4 h-4" />
                 </span>
               </div>
               <div className="text-2xl font-black text-amber-700 font-mono">
-                {formatCurrency(dailyTotalCashInDrawer)}
+                {formatCurrency(dailyCashSales)}
               </div>
               <div className="text-[11px] text-slate-600 font-medium pt-1 border-t border-slate-100 flex justify-between">
-                <span>Ventas: {formatCurrency(dailyCashSales)}</span>
-                <span>Abonos: {formatCurrency(dailyCollectedDebtPayments)}</span>
+                <span>Ventas Efectivo: {formatCurrency(dailyCashSales)}</span>
+                <span>Tickets: {dailySales.filter(s => s.paymentMethod === 'cash').length}</span>
               </div>
             </div>
 
@@ -792,12 +791,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               
               <div className="p-3 bg-slate-800/90 rounded-xl border border-slate-700 space-y-1">
-                <div className="text-[11px] font-bold text-slate-300 uppercase">1. Efectivo Físico</div>
+                <div className="text-[11px] font-bold text-slate-300 uppercase">1. Efectivo Cobrado</div>
                 <div className="text-lg font-black text-emerald-400 font-mono">
-                  {formatCurrency(dailyTotalCashInDrawer)}
+                  {formatCurrency(dailyCashSales)}
                 </div>
                 <div className="text-[10px] text-slate-400">
-                  {formatCurrency(dailyCashSales)} ventas + {formatCurrency(dailyCollectedDebtPayments)} abonos
+                  {dailySales.filter(s => s.paymentMethod === 'cash').length} tickets en efectivo
                 </div>
               </div>
 
@@ -1032,19 +1031,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </div>
             </div>
 
-            {/* Abonos Cobrados en la Semana */}
+            {/* Ventas en Efectivo de la Semana */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase text-slate-600 tracking-wider">Cobranza de Deuda</span>
-                <span className="p-1.5 bg-amber-50 text-amber-700 rounded-lg">
-                  <CreditCard className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase text-slate-600 tracking-wider">Ventas en Efectivo</span>
+                <span className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg">
+                  <Wallet className="w-4 h-4" />
                 </span>
               </div>
-              <div className="text-2xl font-black text-amber-700 font-mono">
-                {formatCurrency(weeklyPayments.reduce((s, p) => s + p.amount, 0))}
+              <div className="text-2xl font-black text-emerald-700 font-mono">
+                {formatCurrency(weeklySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0))}
               </div>
               <div className="text-[11px] text-slate-600 font-medium pt-1 border-t border-slate-100">
-                <span>{weeklyPayments.length} abonos recibidos</span>
+                <span>{weeklySales.filter(s => s.paymentMethod === 'cash').length} tickets cobrados en efectivo</span>
               </div>
             </div>
 
