@@ -589,6 +589,23 @@ export class CloudSyncService {
     await setDoc(ref, cleanSettings, { merge: true });
   }
 
+  // Wipe payments and reset customer debts from cloud
+  static async wipePaymentsFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.PAYMENTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+      console.log('Payments purged from Firestore Cloud successfully.');
+    } catch (error) {
+      console.warn('Error purging payments from Firestore Cloud:', error);
+    }
+  }
+
   // Wipe all data from Cloud Firestore (only when explicitly requested by user in Settings)
   static async wipeAllDataFromCloud(keepSettings = true): Promise<void> {
     try {

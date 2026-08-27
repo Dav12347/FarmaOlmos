@@ -143,20 +143,7 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
 
   const totalSalesRevenue = cashSalesTotal + cardSalesTotal + transferSalesTotal + creditSalesTotal;
 
-  // Debt payments (abonos) received
-  const debtPaymentsCashTotal = currentShiftPayments
-    .filter(p => p.paymentMethod === 'cash')
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  const debtPaymentsCardTotal = currentShiftPayments
-    .filter(p => p.paymentMethod === 'card')
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  const debtPaymentsTransferTotal = currentShiftPayments
-    .filter(p => p.paymentMethod === 'transfer')
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  // Manual cash movements
+  // Manual cash movements (Entradas y Salidas)
   const cashInTotal = currentShiftMovements
     .filter(m => m.type === 'in')
     .reduce((sum, m) => sum + m.amount, 0);
@@ -170,11 +157,10 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
     .filter(s => s.paymentMethod === 'cash')
     .reduce((sum, s) => sum + s.total, 0);
 
-  // Expected cash in drawer
+  // Expected cash in drawer: Fondo Inicial + Ventas en Efectivo + Entradas - Salidas
   const expectedCash = 
     activeShift.initialCash + 
     cashSalesTotal + 
-    debtPaymentsCashTotal + 
     cashInTotal - 
     cashOutTotal;
 
@@ -270,9 +256,9 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
       creditSalesTotal,
       totalSalesCount: activeSales.length,
 
-      debtPaymentsCashTotal,
-      debtPaymentsCardTotal,
-      debtPaymentsTransferTotal,
+      debtPaymentsCashTotal: 0,
+      debtPaymentsCardTotal: 0,
+      debtPaymentsTransferTotal: 0,
 
       cashInTotal,
       cashOutTotal,
@@ -346,14 +332,11 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
     doc.text('ARQUEO DE EFECTIVO', 5, y);
     y += 4;
     doc.setFont('helvetica', 'normal');
-    doc.text('(+) Fondo Inicial:', 5, y);
+    doc.text('(+) Fondo Inicial (Caja al Iniciar):', 5, y);
     doc.text(formatCurrency(cut.initialCash), 75, y, { align: 'right' });
     y += 4;
-    doc.text('(+) Ventas Efectivo:', 5, y);
+    doc.text('(+) Ventas en Efectivo:', 5, y);
     doc.text(formatCurrency(cut.cashSalesTotal), 75, y, { align: 'right' });
-    y += 4;
-    doc.text('(+) Abonos a Deuda Efectivo:', 5, y);
-    doc.text(formatCurrency(cut.debtPaymentsCashTotal), 75, y, { align: 'right' });
     y += 4;
     doc.text('(+) Entradas de Efectivo:', 5, y);
     doc.text(formatCurrency(cut.cashInTotal), 75, y, { align: 'right' });
@@ -528,14 +511,14 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                 </span>
               </div>
 
-              {/* Card 3: Abonos + Entradas */}
+              {/* Card 3: Entradas de Efectivo */}
               <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 flex flex-col justify-between">
-                <span className="text-teal-800 text-[11px] font-bold uppercase">Abonos + Entradas</span>
+                <span className="text-teal-800 text-[11px] font-bold uppercase">Entradas (+ Cambio)</span>
                 <div className="text-lg font-black text-teal-950 font-mono mt-1">
-                  +{formatCurrency(debtPaymentsCashTotal + cashInTotal)}
+                  +{formatCurrency(cashInTotal)}
                 </div>
                 <span className="text-[10px] text-teal-800 font-medium">
-                  Abonos: {formatCurrency(debtPaymentsCashTotal)} • Entradas: {formatCurrency(cashInTotal)}
+                  {currentShiftMovements.filter(m => m.type === 'in').length} entradas registradas
                 </span>
               </div>
 
@@ -561,11 +544,11 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <div className="p-2 bg-white rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 block">Tarjeta / Terminal</span>
-                  <span className="font-bold text-slate-800 font-mono">{formatCurrency(cardSalesTotal + debtPaymentsCardTotal)}</span>
+                  <span className="font-bold text-slate-800 font-mono">{formatCurrency(cardSalesTotal)}</span>
                 </div>
                 <div className="p-2 bg-white rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 block">Transferencias</span>
-                  <span className="font-bold text-slate-800 font-mono">{formatCurrency(transferSalesTotal + debtPaymentsTransferTotal)}</span>
+                  <span className="font-bold text-slate-800 font-mono">{formatCurrency(transferSalesTotal)}</span>
                 </div>
                 <div className="p-2 bg-white rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 block">Crédito / Fiado Otorgado</span>
@@ -1193,10 +1176,6 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                     <div className="flex justify-between text-[11px]">
                       <span>(+) Ventas Efectivo:</span>
                       <span>{formatCurrency(viewingHistoricCut.cashSalesTotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-[11px]">
-                      <span>(+) Abonos Efectivo:</span>
-                      <span>{formatCurrency(viewingHistoricCut.debtPaymentsCashTotal)}</span>
                     </div>
                     <div className="flex justify-between text-[11px]">
                       <span>(+) Entradas Efectivo:</span>

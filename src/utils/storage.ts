@@ -472,8 +472,26 @@ export class StorageManager {
     window.dispatchEvent(new Event('farmacontrol_data_updated'));
   }
 
-  // Safe startup check that NEVER wipes existing products/movements
+  // Clears all payments and resets any outstanding debts while keeping products and sales completely intact
+  static wipePaymentsAndResetDebts(): void {
+    localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify([]));
+    try {
+      const customers = this.getCustomers().map(c => ({ ...c, currentDebt: 0 }));
+      this.saveCustomers(customers);
+    } catch (e) {
+      console.warn('Error clearing customer debts:', e);
+    }
+    CloudSyncService.wipePaymentsFromCloud().catch(console.warn);
+    window.dispatchEvent(new Event('farmacontrol_data_updated'));
+  }
+
+  // Safe startup check that clears old test abonos/payments and keeps existing products/sales/movements intact
   static ensureVirginModeOnStartup(): void {
+    const isClean = localStorage.getItem('farmacontrol_abonos_purged_v2');
+    if (!isClean) {
+      this.wipePaymentsAndResetDebts();
+      localStorage.setItem('farmacontrol_abonos_purged_v2', 'true');
+    }
     const isVirgin = localStorage.getItem(STORAGE_KEYS.VIRGIN_INITIALIZED);
     if (!isVirgin) {
       localStorage.setItem(STORAGE_KEYS.VIRGIN_INITIALIZED, 'true');
