@@ -497,6 +497,42 @@ export class CloudSyncService {
     }
   }
 
+  // Delete Inventory Movement in real time
+  static async deleteMovement(movementId: string, updatedProducts?: Product[]): Promise<void> {
+    const movRef = doc(db, COLLECTIONS.MOVEMENTS, movementId);
+    try {
+      await deleteDoc(movRef);
+      if (updatedProducts && updatedProducts.length > 0) {
+        await this.saveProductsBatch(updatedProducts);
+      }
+    } catch (err) {
+      console.error('Error deleting movement from Firestore:', err);
+      throw err;
+    }
+  }
+
+  // Delete Cash Movement in real time
+  static async deleteCashMovement(movementId: string): Promise<void> {
+    const movRef = doc(db, COLLECTIONS.CASH_MOVEMENTS, movementId);
+    try {
+      await deleteDoc(movRef);
+    } catch (err) {
+      console.error('Error deleting cash movement from Firestore:', err);
+      throw err;
+    }
+  }
+
+  // Delete Sale in real time
+  static async deleteSale(saleId: string): Promise<void> {
+    const saleRef = doc(db, COLLECTIONS.SALES, saleId);
+    try {
+      await deleteDoc(saleRef);
+    } catch (err) {
+      console.error('Error deleting sale from Firestore:', err);
+      throw err;
+    }
+  }
+
   // Save Debt Payment in real time
   static async savePayment(payment: DebtPayment, updatedCustomer: Customer): Promise<void> {
     const cleanPayment = sanitizeForFirestore(payment);

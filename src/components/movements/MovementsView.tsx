@@ -29,7 +29,9 @@ import {
   Building2,
   FileSpreadsheet,
   Upload,
-  Sparkles
+  Sparkles,
+  Edit3,
+  Eye
 } from 'lucide-react';
 import { SupplierTicketModal } from '../inventory/SupplierTicketModal';
 import { StockEntryExcelModal } from './StockEntryExcelModal';
@@ -40,6 +42,8 @@ interface MovementsViewProps {
   settings: PharmacySettings;
   movementsCount: number;
   onRegisterMovement: (movement: InventoryMovement, updatedProducts: Product[]) => void;
+  onUpdateMovement?: (movement: InventoryMovement, updatedProducts: Product[]) => void;
+  onDeleteMovement?: (movementId: string, updatedProducts: Product[]) => void;
 }
 
 export const MovementsView: React.FC<MovementsViewProps> = ({
@@ -48,11 +52,17 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
   settings,
   movementsCount,
   onRegisterMovement,
+  onUpdateMovement,
+  onDeleteMovement,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'entry' | 'exit'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMovementDetail, setSelectedMovementDetail] = useState<InventoryMovement | null>(null);
+
+  // Edit and Delete States
+  const [movementToEdit, setMovementToEdit] = useState<InventoryMovement | null>(null);
+  const [movementToDelete, setMovementToDelete] = useState<InventoryMovement | null>(null);
 
   // Modals for Ticket/PDF and Excel Bulk Entry
   const [isSupplierTicketModalOpen, setIsSupplierTicketModalOpen] = useState(false);
@@ -68,6 +78,23 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
   
   // Dynamic Items inside the new movement
   const [movementItems, setMovementItems] = useState<Array<{
+    productId: string;
+    quantity: number;
+    costPrice: number;
+    batchNumber: string;
+    expirationDate: string;
+  }>>([]);
+
+  // Edit Movement Form State
+  const [editFolio, setEditFolio] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editType, setEditType] = useState<MovementType>('entry');
+  const [editReason, setEditReason] = useState<MovementReason>('compra');
+  const [editSupplierOrDestination, setEditSupplierOrDestination] = useState('');
+  const [editReferenceInvoice, setEditReferenceInvoice] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editRegisteredBy, setEditRegisteredBy] = useState('');
+  const [editMovementItems, setEditMovementItems] = useState<Array<{
     productId: string;
     quantity: number;
     costPrice: number;
@@ -91,6 +118,27 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
       }
     ]);
     setIsModalOpen(true);
+  };
+
+  const openEditMovementModal = (mov: InventoryMovement) => {
+    setMovementToEdit(mov);
+    setEditFolio(mov.folio);
+    setEditDate(mov.date);
+    setEditType(mov.type);
+    setEditReason(mov.reason);
+    setEditSupplierOrDestination(mov.supplierOrDestination || '');
+    setEditReferenceInvoice(mov.referenceInvoice || '');
+    setEditNotes(mov.notes || '');
+    setEditRegisteredBy(mov.registeredBy || 'Farmacéutico Responsable');
+    setEditMovementItems(
+      mov.items.map(it => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        costPrice: it.costPrice,
+        batchNumber: it.batchNumber || '',
+        expirationDate: it.expirationDate || '',
+      }))
+    );
   };
 
   const handleAddItemRow = () => {
@@ -141,6 +189,178 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
   const totalMovementValue = useMemo(() => {
     return movementItems.reduce((sum, it) => sum + (it.costPrice * it.quantity), 0);
   }, [movementItems]);
+
+  // Edit Handlers
+  const handleAddItemRowEdit = () => {
+    const firstProd = products[0];
+    setEditMovementItems(prev => [
+      ...prev,
+      {
+        productId: firstProd?.id || '',
+        quantity: 1,
+        costPrice: firstProd?.costPrice || 0,
+        batchNumber: firstProd?.batchNumber || '',
+        expirationDate: firstProd?.expirationDate || '',
+      }
+    ]);
+  };
+
+  const handleRemoveItemRowEdit = (idx: number) => {
+    setEditMovementItems(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleProductSelectChangeEdit = (idx: number, productId: string) => {
+    const prod = products.find(p => p.id === productId);
+    if (!prod) return;
+
+    setEditMovementItems(prev => prev.map((item, i) => {
+      if (i === idx) {
+        return {
+          ...item,
+          productId,
+          costPrice: prod.costPrice,
+          batchNumber: prod.batchNumber || '',
+          expirationDate: prod.expirationDate || '',
+        };
+      }
+      return item;
+    }));
+  };
+
+  const handleItemFieldChangeEdit = (idx: number, field: string, value: any) => {
+    setEditMovementItems(prev => prev.map((item, i) => {
+      if (i === idx) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  const totalEditMovementValue = useMemo(() => {
+    return editMovementItems.reduce((sum, it) => sum + (it.costPrice * it.quantity), 0);
+  }, [editMovementItems]);
+
+  const handleSubmitEditMovement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movementToEdit) return;
+
+    if (editMovementItems.length === 0) {
+      alert('El movimiento debe incluir al menos un medicamento.');
+      return;
+    }
+
+    for (const item of editMovementItems) {
+      if (item.quantity <= 0) {
+        alert('La cantidad de todos los medicamentos debe ser mayor a 0.');
+        return;
+      }
+    }
+
+    // Calculate stock changes for each product:
+    // 1. Revert old movement effect
+    const stockDeltas = new Map<string, number>();
+    for (const oldItem of movementToEdit.items) {
+      const oldQty = oldItem.quantity;
+      const revertImpact = movementToEdit.type === 'entry' ? -oldQty : oldQty;
+      stockDeltas.set(oldItem.productId, (stockDeltas.get(oldItem.productId) || 0) + revertImpact);
+    }
+
+    // 2. Apply new movement effect
+    for (const newItem of editMovementItems) {
+      const newQty = Number(newItem.quantity);
+      const applyImpact = editType === 'entry' ? newQty : -newQty;
+      stockDeltas.set(newItem.productId, (stockDeltas.get(newItem.productId) || 0) + applyImpact);
+    }
+
+    // Check if any product would end up negative
+    for (const [prodId, delta] of stockDeltas.entries()) {
+      const prod = products.find(p => p.id === prodId);
+      if (prod && (prod.stock + delta) < 0) {
+        alert(`No es posible aplicar el cambio: el stock de "${prod.name}" quedaría en negativo (${prod.stock + delta}).`);
+        return;
+      }
+    }
+
+    // Build updated products
+    const updatedProducts = products.map(prod => {
+      const delta = stockDeltas.get(prod.id);
+      const foundNewItem = editMovementItems.find(it => it.productId === prod.id);
+      if (delta !== undefined) {
+        return {
+          ...prod,
+          stock: Math.max(0, prod.stock + delta),
+          costPrice: editType === 'entry' && foundNewItem && foundNewItem.costPrice > 0 ? foundNewItem.costPrice : prod.costPrice,
+          batchNumber: editType === 'entry' && foundNewItem?.batchNumber ? foundNewItem.batchNumber : prod.batchNumber,
+          expirationDate: editType === 'entry' && foundNewItem?.expirationDate ? foundNewItem.expirationDate : prod.expirationDate,
+        };
+      }
+      return prod;
+    });
+
+    const fullItems: MovementItem[] = editMovementItems.map(it => {
+      const prod = products.find(p => p.id === it.productId);
+      return {
+        productId: it.productId,
+        productName: prod ? prod.name : 'Medicamento',
+        quantity: Number(it.quantity),
+        costPrice: Number(it.costPrice),
+        subtotal: Number(it.quantity) * Number(it.costPrice),
+        batchNumber: it.batchNumber,
+        expirationDate: it.expirationDate,
+      };
+    });
+
+    const updatedMovement: InventoryMovement = {
+      ...movementToEdit,
+      folio: editFolio || movementToEdit.folio,
+      type: editType,
+      reason: editReason,
+      date: editDate || movementToEdit.date,
+      items: fullItems,
+      totalValue: totalEditMovementValue,
+      supplierOrDestination: editSupplierOrDestination,
+      referenceInvoice: editReferenceInvoice,
+      notes: editNotes,
+      registeredBy: editRegisteredBy || movementToEdit.registeredBy,
+    };
+
+    if (onUpdateMovement) {
+      onUpdateMovement(updatedMovement, updatedProducts);
+    } else {
+      onRegisterMovement(updatedMovement, updatedProducts);
+    }
+
+    setMovementToEdit(null);
+    if (selectedMovementDetail?.id === updatedMovement.id) {
+      setSelectedMovementDetail(updatedMovement);
+    }
+  };
+
+  const handleConfirmDeleteMovement = () => {
+    if (!movementToDelete) return;
+
+    // Revert inventory stock of this movement
+    const updatedProducts = products.map(prod => {
+      const foundItem = movementToDelete.items.find(it => it.productId === prod.id);
+      if (foundItem) {
+        const revertDelta = movementToDelete.type === 'entry' ? -foundItem.quantity : foundItem.quantity;
+        return {
+          ...prod,
+          stock: Math.max(0, prod.stock + revertDelta),
+        };
+      }
+      return prod;
+    });
+
+    if (onDeleteMovement) {
+      onDeleteMovement(movementToDelete.id, updatedProducts);
+    }
+
+    setMovementToDelete(null);
+    if (selectedMovementDetail?.id === movementToDelete.id) {
+      setSelectedMovementDetail(null);
+    }
+  };
 
   const handleSubmitMovement = (e: React.FormEvent) => {
     e.preventDefault();
@@ -453,12 +673,35 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setSelectedMovementDetail(m)}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200   text-slate-700  rounded font-semibold text-[11px] cursor-pointer"
-                      >
-                        Ver Detalle
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMovementDetail(m)}
+                          className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Ver detalle completo"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Detalle</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditMovementModal(m)}
+                          className="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors border border-teal-200"
+                          title="Editar este movimiento"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Editar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMovementToDelete(m)}
+                          className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors border border-rose-200"
+                          title="Eliminar movimiento y revertir existencias"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Eliminar</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -886,15 +1129,394 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
               )}
             </div>
 
-            <div className="px-6 py-3 border-t border-slate-200  bg-slate-50  flex justify-between items-center">
+            <div className="px-6 py-3 border-t border-slate-200  bg-slate-50  flex flex-wrap gap-2 justify-between items-center">
               <span className="font-bold text-slate-900 ">
                 Total: {formatCurrency(selectedMovementDetail.totalValue)}
               </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mov = selectedMovementDetail;
+                    setSelectedMovementDetail(null);
+                    openEditMovementModal(mov);
+                  }}
+                  className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded font-semibold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Editar Movimiento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mov = selectedMovementDetail;
+                    setSelectedMovementDetail(null);
+                    setMovementToDelete(mov);
+                  }}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded font-semibold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+                <button
+                  onClick={() => setSelectedMovementDetail(null)}
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300  text-slate-800  rounded font-semibold text-xs cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Movement Modal */}
+      {movementToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden text-xs">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-teal-100 text-teal-700 rounded-md">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">
+                    Editar Movimiento: {movementToEdit.folio}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Modifica cantidades, costos o medicamentos. El stock de inventario se ajustará automáticamente.
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => setSelectedMovementDetail(null)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300  text-slate-800  rounded font-semibold cursor-pointer"
+                type="button"
+                onClick={() => setMovementToEdit(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-md"
               >
-                Cerrar
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitEditMovement} className="p-6 overflow-y-auto space-y-4 flex-1">
+              
+              {/* Type and Reason */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Tipo de Movimiento:
+                  </label>
+                  <select
+                    value={editType}
+                    onChange={e => setEditType(e.target.value as MovementType)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-medium"
+                  >
+                    <option value="entry">Entrada (+) - Compra o Ajuste Positivo</option>
+                    <option value="exit">Salida (-) - Merma, Caducidad o Devolución</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Motivo / Concepto:
+                  </label>
+                  <select
+                    value={editReason}
+                    onChange={e => setEditReason(e.target.value as MovementReason)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  >
+                    {editType === 'entry' ? (
+                      <>
+                        <option value="compra">Compra a Proveedor</option>
+                        <option value="ajuste">Ajuste de Inventario (Físico)</option>
+                        <option value="devolucion_cliente">Devolución de Cliente</option>
+                        <option value="donacion">Donación Recibida</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="caducidad">Producto Caducado</option>
+                        <option value="merma">Merma / Daño Físico</option>
+                        <option value="ajuste">Ajuste de Inventario (Físico Negativo)</option>
+                        <option value="devolucion_proveedor">Devolución a Proveedor</option>
+                        <option value="donacion">Donación Entregada</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Supplier and Reference */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {editType === 'entry' ? 'Proveedor / Origen:' : 'Destino / Disposición:'}
+                  </label>
+                  <input
+                    type="text"
+                    value={editSupplierOrDestination}
+                    onChange={e => setEditSupplierOrDestination(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Factura / Remisión / Ref:
+                  </label>
+                  <input
+                    type="text"
+                    value={editReferenceInvoice}
+                    onChange={e => setEditReferenceInvoice(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Items Section */}
+              <div className="pt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Package className="w-4 h-4 text-teal-600" />
+                    Medicamentos en el Movimiento:
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleAddItemRowEdit}
+                    className="px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer border border-teal-200"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Agregar Fila
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-600 font-semibold">
+                      <tr>
+                        <th className="py-2 px-3">Medicamento</th>
+                        <th className="py-2 px-3 w-20">Cantidad</th>
+                        <th className="py-2 px-3 w-24">Costo Unit.</th>
+                        <th className="py-2 px-3 w-28">Lote</th>
+                        <th className="py-2 px-3 w-32">Caducidad</th>
+                        <th className="py-2 px-3 w-24 text-right">Subtotal</th>
+                        <th className="py-2 px-2 w-10 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {editMovementItems.map((row, idx) => (
+                        <tr key={idx} className="bg-white">
+                          <td className="py-2 px-2">
+                            <select
+                              value={row.productId}
+                              onChange={e => handleProductSelectChangeEdit(idx, e.target.value)}
+                              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-xs"
+                            >
+                              {products.map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} (Stock act.: {p.stock})
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="py-2 px-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={row.quantity}
+                              onChange={e => handleItemFieldChangeEdit(idx, 'quantity', parseInt(e.target.value) || 1)}
+                              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-center font-bold"
+                            />
+                          </td>
+
+                          <td className="py-2 px-2">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              value={row.costPrice}
+                              onChange={e => handleItemFieldChangeEdit(idx, 'costPrice', parseFloat(e.target.value) || 0)}
+                              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-right font-mono"
+                            />
+                          </td>
+
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              placeholder="Lote"
+                              value={row.batchNumber}
+                              onChange={e => handleItemFieldChangeEdit(idx, 'batchNumber', e.target.value)}
+                              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded"
+                            />
+                          </td>
+
+                          <td className="py-2 px-2">
+                            <input
+                              type="date"
+                              value={row.expirationDate}
+                              onChange={e => handleItemFieldChangeEdit(idx, 'expirationDate', e.target.value)}
+                              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-[11px]"
+                            />
+                          </td>
+
+                          <td className="py-2 px-2 text-right font-bold text-slate-900 font-mono">
+                            {formatCurrency(row.quantity * row.costPrice)}
+                          </td>
+
+                          <td className="py-2 px-2 text-center">
+                            {editMovementItems.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItemRowEdit(idx)}
+                                className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-2 flex justify-end">
+                  <div className="bg-slate-100 px-4 py-2 rounded-lg flex items-center gap-4 text-xs">
+                    <span className="font-semibold text-slate-600">Nuevo Valor Total:</span>
+                    <span className="text-base font-black text-slate-900 font-mono">
+                      {formatCurrency(totalEditMovementValue)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes & Responsible */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Registrado por:
+                  </label>
+                  <input
+                    type="text"
+                    value={editRegisteredBy}
+                    onChange={e => setEditRegisteredBy(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Observaciones / Motivo:
+                  </label>
+                  <input
+                    type="text"
+                    value={editNotes}
+                    onChange={e => setEditNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-4 border-t border-slate-200 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMovementToEdit(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Guardar Cambios y Ajustar Stock
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Movement Confirmation Modal */}
+      {movementToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden text-xs">
+            <div className="px-6 py-4 border-b border-rose-200 bg-rose-50 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-rose-100 text-rose-700 rounded-md">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-rose-950">
+                    ¿Eliminar Movimiento {movementToDelete.folio}?
+                  </h3>
+                  <p className="text-[11px] text-rose-700">
+                    Esta acción actualizará el inventario automáticamente.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovementToDelete(null)}
+                className="p-1 text-rose-400 hover:text-rose-600 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 space-y-1">
+                <div className="font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  Impacto en el inventario:
+                </div>
+                <p className="text-[11px]">
+                  {movementToDelete.type === 'entry'
+                    ? 'Al eliminar esta entrada, las existencias añadidas serán RESTADAS del inventario de medicamentos.'
+                    : 'Al eliminar esta salida, las existencias descontadas serán REGRESADAS al inventario de medicamentos.'}
+                </p>
+              </div>
+
+              <div>
+                <span className="font-bold text-slate-800 block mb-1">Medicamentos a revertir:</span>
+                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  {movementToDelete.items.map((it, idx) => (
+                    <li key={idx} className="p-2.5 flex justify-between items-center text-[11px]">
+                      <span className="font-medium text-slate-800">{it.productName}</span>
+                      <span className="font-bold font-mono text-slate-900">
+                        {movementToDelete.type === 'entry' ? `-${it.quantity} un.` : `+${it.quantity} un.`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="flex justify-between items-center text-slate-600 text-[11px] pt-1">
+                <span>Total del movimiento:</span>
+                <span className="font-bold font-mono text-slate-900 text-xs">
+                  {formatCurrency(movementToDelete.totalValue)}
+                </span>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMovementToDelete(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteMovement}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                Confirmar y Revertir Inventario
               </button>
             </div>
           </div>

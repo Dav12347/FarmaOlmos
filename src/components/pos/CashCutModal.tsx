@@ -30,7 +30,9 @@ import {
   ArrowDownRight,
   ArrowRightLeft,
   ShieldCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2,
+  Edit3
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 
@@ -45,6 +47,8 @@ interface CashCutModalProps {
   onClose: () => void;
   onSaveCashCut: (cashCut: CashCut, newShiftInitialCash: number) => void;
   onSaveCashMovement: (movement: CashMovement) => void;
+  onUpdateCashMovement?: (movement: CashMovement) => void;
+  onDeleteCashMovement?: (movementId: string) => void;
   onUpdateActiveInitialCash: (initialCash: number) => void;
 }
 
@@ -59,6 +63,8 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
   onClose,
   onSaveCashCut,
   onSaveCashMovement,
+  onUpdateCashMovement,
+  onDeleteCashMovement,
   onUpdateActiveInitialCash,
 }) => {
   const [activeTab, setActiveTab] = useState<'current' | 'movements' | 'history'>('current');
@@ -98,6 +104,12 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
   const [movementNotes, setMovementNotes] = useState('');
+
+  // Cash Movement Edit State
+  const [cashMovementToEdit, setCashMovementToEdit] = useState<CashMovement | null>(null);
+  const [editMovementType, setEditMovementType] = useState<'in' | 'out'>('out');
+  const [editMovementAmount, setEditMovementAmount] = useState('');
+  const [editMovementReason, setEditMovementReason] = useState('');
 
   // Selected historic cut for ticket view
   const [viewingHistoricCut, setViewingHistoricCut] = useState<CashCut | null>(null);
@@ -228,6 +240,51 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
     setMovementReason('');
     setMovementNotes('');
     setIsAddingMovement(false);
+  };
+
+  // Open Edit Cash Movement
+  const handleOpenEditCashMovement = (mov: CashMovement) => {
+    setCashMovementToEdit(mov);
+    setEditMovementType(mov.type);
+    setEditMovementAmount(mov.amount.toString());
+    setEditMovementReason(mov.reason);
+  };
+
+  // Save Edit Cash Movement
+  const handleSaveEditCashMovement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cashMovementToEdit) return;
+
+    const amountNum = parseFloat(editMovementAmount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      alert('Por favor ingrese un monto válido mayor a $0.');
+      return;
+    }
+    if (!editMovementReason.trim()) {
+      alert('Por favor especifique el concepto o motivo.');
+      return;
+    }
+
+    const updatedMov: CashMovement = {
+      ...cashMovementToEdit,
+      type: editMovementType,
+      amount: amountNum,
+      reason: editMovementReason.trim(),
+    };
+
+    if (onUpdateCashMovement) {
+      onUpdateCashMovement(updatedMov);
+    }
+    setCashMovementToEdit(null);
+  };
+
+  // Delete Cash Movement
+  const handleDeleteCashMovementAction = (movId: string) => {
+    if (window.confirm('¿Está seguro de eliminar esta entrada/salida de efectivo?')) {
+      if (onDeleteCashMovement) {
+        onDeleteCashMovement(movId);
+      }
+    }
   };
 
   // Finalize Cash Cut / Close Register Shift
@@ -948,6 +1005,7 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                     <th className="p-3">Concepto / Motivo</th>
                     <th className="p-3">Registró</th>
                     <th className="p-3 text-right">Monto</th>
+                    <th className="p-3 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -971,12 +1029,32 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                       }`}>
                         {mov.type === 'in' ? '+' : '-'}{formatCurrency(mov.amount)}
                       </td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCashMovement(mov)}
+                            className="p-1 text-teal-700 hover:bg-teal-50 rounded"
+                            title="Editar movimiento"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCashMovementAction(mov.id)}
+                            className="p-1 text-rose-600 hover:bg-rose-50 rounded"
+                            title="Eliminar movimiento"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
 
                   {currentShiftMovements.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
+                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
                         No se han registrado entradas ni salidas manuales en este turno.
                       </td>
                     </tr>
@@ -984,6 +1062,103 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                 </tbody>
               </table>
             </div>
+
+            {/* Edit Cash Movement Modal */}
+            {cashMovementToEdit && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+                <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden text-xs">
+                  <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                    <h4 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                      <Edit3 className="w-4 h-4 text-teal-700" />
+                      Editar Movimiento: {cashMovementToEdit.folio}
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setCashMovementToEdit(null)}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveEditCashMovement} className="p-5 space-y-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Tipo de Movimiento:
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditMovementType('out')}
+                          className={`py-2 px-3 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                            editMovementType === 'out'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                              : 'bg-white border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          Salida / Gasto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditMovementType('in')}
+                          className={`py-2 px-3 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                            editMovementType === 'in'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-white border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          Entrada / Cambio
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Monto en Efectivo ($):
+                      </label>
+                      <input
+                        type="number"
+                        step="0.50"
+                        min="0.5"
+                        value={editMovementAmount}
+                        onChange={e => setEditMovementAmount(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold font-mono"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Concepto / Motivo:
+                      </label>
+                      <input
+                        type="text"
+                        value={editMovementReason}
+                        onChange={e => setEditMovementReason(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setCashMovementToEdit(null)}
+                        className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-xs"
+                      >
+                        Guardar Cambios
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
           </div>
         )}

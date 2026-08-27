@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sale, Product, Customer } from '../../types/pharmacy';
+import { Sale, Product, Customer, PharmacySettings } from '../../types/pharmacy';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { 
   X, 
@@ -14,9 +14,11 @@ import {
 } from 'lucide-react';
 
 interface CancelSaleModalProps {
+  isOpen?: boolean;
   sale: Sale | null;
-  products: Product[];
-  customers: Customer[];
+  products?: Product[];
+  customers?: Customer[];
+  settings?: PharmacySettings;
   sellerName?: string;
   onClose: () => void;
   onConfirmCancel: (
@@ -27,14 +29,16 @@ interface CancelSaleModalProps {
 }
 
 export const CancelSaleModal: React.FC<CancelSaleModalProps> = ({
+  isOpen = true,
   sale,
-  products,
-  customers,
+  products = [],
+  customers = [],
+  settings,
   sellerName = 'Cajero en Turno',
   onClose,
   onConfirmCancel,
 }) => {
-  if (!sale) return null;
+  if (!isOpen || !sale) return null;
 
   const isAlreadyCancelled = sale.status === 'cancelled' || sale.status === 'refunded';
 

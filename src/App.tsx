@@ -317,6 +317,38 @@ export default function App() {
     }
   };
 
+  // Handle movement updated (Edit entrada / salida)
+  const handleUpdateMovement = async (movement: InventoryMovement, updatedProducts: Product[]) => {
+    const nextMovements = movements.map(m => m.id === movement.id ? movement : m);
+    setMovements(nextMovements);
+    setProducts(updatedProducts);
+
+    StorageManager.saveMovements(nextMovements, true);
+    StorageManager.saveProducts(updatedProducts, true);
+
+    try {
+      await CloudSyncService.saveMovement(movement, updatedProducts);
+    } catch (e) {
+      console.warn('Cloud movement update note:', e);
+    }
+  };
+
+  // Handle movement deleted (Delete entrada / salida with stock reversal)
+  const handleDeleteMovement = async (movementId: string, updatedProducts: Product[]) => {
+    const nextMovements = movements.filter(m => m.id !== movementId);
+    setMovements(nextMovements);
+    setProducts(updatedProducts);
+
+    StorageManager.saveMovements(nextMovements, true);
+    StorageManager.saveProducts(updatedProducts, true);
+
+    try {
+      await CloudSyncService.deleteMovement(movementId, updatedProducts);
+    } catch (e) {
+      console.warn('Cloud movement delete note:', e);
+    }
+  };
+
   // Handle customer save / delete
   const handleSaveCustomer = async (customer: Customer) => {
     const exists = customers.some(c => c.id === customer.id);
@@ -407,6 +439,32 @@ export default function App() {
       await CloudSyncService.saveCashMovement(newMov);
     } catch (e) {
       console.warn('Cloud cash movement save error:', e);
+    }
+  };
+
+  // Handle Cash Movement update (Edit Entrada / Salida de efectivo)
+  const handleUpdateCashMovement = async (updatedMov: CashMovement) => {
+    const nextMovs = cashMovements.map(m => m.id === updatedMov.id ? updatedMov : m);
+    setCashMovements(nextMovs);
+    StorageManager.saveCashMovements(nextMovs, true);
+
+    try {
+      await CloudSyncService.saveCashMovement(updatedMov);
+    } catch (e) {
+      console.warn('Cloud cash movement update error:', e);
+    }
+  };
+
+  // Handle Cash Movement delete
+  const handleDeleteCashMovement = async (movementId: string) => {
+    const nextMovs = cashMovements.filter(m => m.id !== movementId);
+    setCashMovements(nextMovs);
+    StorageManager.saveCashMovements(nextMovs, true);
+
+    try {
+      await CloudSyncService.deleteCashMovement(movementId);
+    } catch (e) {
+      console.warn('Cloud cash movement delete error:', e);
     }
   };
 
@@ -677,6 +735,8 @@ export default function App() {
             settings={settings}
             movementsCount={movements.length}
             onRegisterMovement={handleRegisterMovement}
+            onUpdateMovement={handleUpdateMovement}
+            onDeleteMovement={handleDeleteMovement}
           />
         )}
 
@@ -794,6 +854,8 @@ export default function App() {
           activeShift={activeShift}
           onSaveCashCut={handleSaveCashCut}
           onSaveCashMovement={handleSaveCashMovement}
+          onUpdateCashMovement={handleUpdateCashMovement}
+          onDeleteCashMovement={handleDeleteCashMovement}
           onUpdateActiveInitialCash={handleUpdateActiveInitialCash}
         />
       )}
@@ -804,7 +866,10 @@ export default function App() {
           isOpen={!!saleToCancel}
           onClose={() => setSaleToCancel(null)}
           sale={saleToCancel}
+          products={products}
+          customers={customers}
           settings={settings}
+          sellerName={currentUser?.name || 'Cajero en Turno'}
           onConfirmCancel={handleConfirmCancelSale}
         />
       )}
