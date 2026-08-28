@@ -32,7 +32,7 @@ export const DEFAULT_SETTINGS: PharmacySettings = {
   name: 'Mi Farmacia',
   commercialName: 'Control de Farmacia & Punto de Venta',
   rfc: '',
-  phone: '',
+  phone: '5573501782',
   email: '',
   address: '',
   city: '',
@@ -41,6 +41,14 @@ export const DEFAULT_SETTINGS: PharmacySettings = {
   currencySymbol: '$',
   taxRate: 0,
   allowDebtExceedLimit: false,
+  whatsappAlertPhone: '5573501782',
+  whatsappCountryCode: '52',
+  whatsappAlertsEnabled: true,
+  whatsappAlertExpiryDays: 30,
+  whatsappAlertIncludeLowStock: true,
+  whatsappAlertIncludeOutOfStock: true,
+  whatsappAlertIncludeExpired: true,
+  whatsappAlertIncludeExpiring: true,
 };
 
 // Clean/Virgin System Initial State (0 products, 0 customers, 0 sales, 0 movements, 0 debt)
@@ -345,7 +353,14 @@ export class StorageManager {
       if (!data) {
         return DEFAULT_SETTINGS;
       }
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        whatsappAlertPhone: parsed.whatsappAlertPhone || DEFAULT_SETTINGS.whatsappAlertPhone,
+        whatsappCountryCode: parsed.whatsappCountryCode || DEFAULT_SETTINGS.whatsappCountryCode,
+        whatsappAlertExpiryDays: parsed.whatsappAlertExpiryDays ?? DEFAULT_SETTINGS.whatsappAlertExpiryDays,
+      };
     } catch (e) {
       console.error('Error reading settings cache', e);
       return DEFAULT_SETTINGS;
@@ -472,6 +487,24 @@ export class StorageManager {
     window.dispatchEvent(new Event('farmacontrol_data_updated'));
   }
 
+  // Clears all exit movements (salidas de inventario) leaving 0 salidas
+  static wipeAllExits(): void {
+    const currentMovements = this.getMovements();
+    const onlyEntries = currentMovements.filter(m => m.type !== 'exit');
+    this.saveMovements(onlyEntries, true);
+    CloudSyncService.wipeExitMovementsFromCloud().catch(console.warn);
+    window.dispatchEvent(new Event('farmacontrol_data_updated'));
+  }
+
+  // Clears all test inventory movements and test cash movements leaving the system 100% clean and virgin
+  static wipeAllTestMovements(): void {
+    localStorage.setItem(STORAGE_KEYS.MOVEMENTS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.CASH_MOVEMENTS, JSON.stringify([]));
+    CloudSyncService.wipeMovementsFromCloud().catch(console.warn);
+    CloudSyncService.wipeCashMovementsFromCloud().catch(console.warn);
+    window.dispatchEvent(new Event('farmacontrol_data_updated'));
+  }
+
   // Clears all payments and resets any outstanding debts while keeping products and sales completely intact
   static wipePaymentsAndResetDebts(): void {
     localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify([]));
@@ -485,8 +518,20 @@ export class StorageManager {
     window.dispatchEvent(new Event('farmacontrol_data_updated'));
   }
 
-  // Safe startup check that clears old test abonos/payments and keeps existing products/sales/movements intact
+  // Safe startup check that clears old test abonos/payments, test movements and exits to leave system virgin
   static ensureVirginModeOnStartup(): void {
+    const isExitsClean = localStorage.getItem('farmacontrol_exits_purged_v2');
+    if (!isExitsClean) {
+      this.wipeAllExits();
+      localStorage.setItem('farmacontrol_exits_purged_v2', 'true');
+    }
+
+    const isMovementsClean = localStorage.getItem('farmacontrol_test_movements_purged_v2');
+    if (!isMovementsClean) {
+      this.wipeAllTestMovements();
+      localStorage.setItem('farmacontrol_test_movements_purged_v2', 'true');
+    }
+
     const isClean = localStorage.getItem('farmacontrol_abonos_purged_v2');
     if (!isClean) {
       this.wipePaymentsAndResetDebts();

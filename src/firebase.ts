@@ -499,15 +499,34 @@ export class CloudSyncService {
 
   // Delete Inventory Movement in real time
   static async deleteMovement(movementId: string, updatedProducts?: Product[]): Promise<void> {
-    const movRef = doc(db, COLLECTIONS.MOVEMENTS, movementId);
     try {
-      await deleteDoc(movRef);
+      // 1. Delete by direct Doc ID
+      const movRef = doc(db, COLLECTIONS.MOVEMENTS, movementId);
+      await deleteDoc(movRef).catch(() => {});
+
+      // 2. Query and delete any documents where document id, object id, or folio matches
+      const snap = await getDocs(collection(db, COLLECTIONS.MOVEMENTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        let count = 0;
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (docSnap.id === movementId || data.id === movementId || data.folio === movementId) {
+            batch.delete(docSnap.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+        }
+      }
+
+      // 3. Update products
       if (updatedProducts && updatedProducts.length > 0) {
         await this.saveProductsBatch(updatedProducts);
       }
     } catch (err) {
       console.error('Error deleting movement from Firestore:', err);
-      throw err;
     }
   }
 
@@ -623,6 +642,103 @@ export class CloudSyncService {
     const cleanSettings = sanitizeForFirestore(settings);
     const ref = doc(db, COLLECTIONS.SETTINGS, 'pharmacy_config');
     await setDoc(ref, cleanSettings, { merge: true });
+  }
+
+  // Wipe all inventory exit movements from cloud (leaves only entries)
+  static async wipeExitMovementsFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.MOVEMENTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        let count = 0;
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (
+            data.type === 'exit' ||
+            (typeof data.folio === 'string' && data.folio.toUpperCase().startsWith('SAL')) ||
+            docSnap.id.toLowerCase().includes('exit') ||
+            docSnap.id.toLowerCase().includes('sal')
+          ) {
+            batch.delete(docSnap.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+        }
+      }
+      console.log('All exit inventory movements purged from Firestore Cloud.');
+    } catch (error) {
+      console.warn('Error purging exit movements from Firestore Cloud:', error);
+    }
+  }
+
+  // Wipe inventory movements from cloud
+  static async wipeMovementsFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.MOVEMENTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+      console.log('Inventory movements purged from Firestore Cloud successfully.');
+    } catch (error) {
+      console.warn('Error purging movements from Firestore Cloud:', error);
+    }
+  }
+
+  // Wipe cash movements from cloud
+  static async wipeCashMovementsFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.CASH_MOVEMENTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+      console.log('Cash movements purged from Firestore Cloud successfully.');
+    } catch (error) {
+      console.warn('Error purging cash movements from Firestore Cloud:', error);
+    }
+  }
+
+  // Wipe sales from cloud
+  static async wipeSalesFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.SALES));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+      console.log('Sales purged from Firestore Cloud successfully.');
+    } catch (error) {
+      console.warn('Error purging sales from Firestore Cloud:', error);
+    }
+  }
+
+  // Wipe cash cuts from cloud
+  static async wipeCashCutsFromCloud(): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.CASH_CUTS));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+      console.log('Cash cuts purged from Firestore Cloud successfully.');
+    } catch (error) {
+      console.warn('Error purging cash cuts from Firestore Cloud:', error);
+    }
   }
 
   // Wipe payments and reset customer debts from cloud

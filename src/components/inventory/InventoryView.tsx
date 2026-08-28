@@ -33,13 +33,25 @@ import {
   CheckCircle2,
   Tag,
   FileText,
-  Download
+  Download,
+  MessageSquare,
+  Send,
+  Phone,
+  Sliders
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SupplierTicketModal } from './SupplierTicketModal';
 import { StockEntryExcelModal } from '../movements/StockEntryExcelModal';
 import { ExportInventoryModal } from './ExportInventoryModal';
+import { WhatsAppAlertModal } from './WhatsAppAlertModal';
 import { Customer, Sale, DebtPayment, CashCut } from '../../types/pharmacy';
+import { 
+  analyzeInventoryForAlerts, 
+  buildSingleProductWhatsAppMessage, 
+  buildWhatsAppStockAlertMessage, 
+  formatPhoneDisplay, 
+  openWhatsAppNotification 
+} from '../../utils/whatsappAlerts';
 
 interface InventoryViewProps {
   products: Product[];
@@ -47,6 +59,7 @@ interface InventoryViewProps {
   onSaveProduct: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onRegisterMovement?: (movement: InventoryMovement, updatedProducts: Product[]) => void;
+  onSaveSettings?: (newSettings: PharmacySettings) => void;
   movementsCount?: number;
   onOpenPhotoSearch?: () => void;
   customers?: Customer[];
@@ -62,6 +75,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onSaveProduct,
   onDeleteProduct,
   onRegisterMovement,
+  onSaveSettings,
   movementsCount = 0,
   onOpenPhotoSearch,
   customers = [],
@@ -102,6 +116,66 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Export / Backup Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // WhatsApp Alert Modal & Inline State
+  const [isWhatsAppAlertModalOpen, setIsWhatsAppAlertModalOpen] = useState(false);
+  const [whatsAppPhoneInput, setWhatsAppPhoneInput] = useState<string>(
+    settings.whatsappAlertPhone || '5573501782'
+  );
+  const [whatsAppCountryCodeInput, setWhatsAppCountryCodeInput] = useState<string>(
+    settings.whatsappCountryCode || '52'
+  );
+  const [isPhoneSavedSuccess, setIsPhoneSavedSuccess] = useState(false);
+
+  // Keep phone input synced if settings change
+  React.useEffect(() => {
+    if (settings.whatsappAlertPhone) {
+      setWhatsAppPhoneInput(settings.whatsappAlertPhone);
+    }
+    if (settings.whatsappCountryCode) {
+      setWhatsAppCountryCodeInput(settings.whatsappCountryCode);
+    }
+  }, [settings.whatsappAlertPhone, settings.whatsappCountryCode]);
+
+  // Inventory analysis for WhatsApp alerts
+  const whatsAppAlertsData = useMemo(() => {
+    return analyzeInventoryForAlerts(products, {
+      expiryDays: settings.whatsappAlertExpiryDays || 30,
+      includeOutOfStock: settings.whatsappAlertIncludeOutOfStock ?? true,
+      includeLowStock: settings.whatsappAlertIncludeLowStock ?? true,
+      includeExpired: settings.whatsappAlertIncludeExpired ?? true,
+      includeExpiring: settings.whatsappAlertIncludeExpiring ?? true,
+    });
+  }, [products, settings]);
+
+  const handleSaveInlineWhatsAppPhone = () => {
+    const cleanNumber = whatsAppPhoneInput.replace(/\D/g, '') || '5573501782';
+    const updatedSettings: PharmacySettings = {
+      ...settings,
+      whatsappAlertPhone: cleanNumber,
+      whatsappCountryCode: whatsAppCountryCodeInput.trim() || '52',
+      whatsappAlertsEnabled: true,
+    };
+    if (onSaveSettings) {
+      onSaveSettings(updatedSettings);
+    }
+    setIsPhoneSavedSuccess(true);
+    setTimeout(() => setIsPhoneSavedSuccess(false), 2500);
+  };
+
+  const handleSendAllWhatsAppAlerts = () => {
+    const phoneToUse = whatsAppPhoneInput.replace(/\D/g, '') || settings.whatsappAlertPhone || '5573501782';
+    const message = buildWhatsAppStockAlertMessage(products, settings, {
+      expiryDays: settings.whatsappAlertExpiryDays || 30,
+    });
+    openWhatsAppNotification(phoneToUse, message, whatsAppCountryCodeInput || '52');
+  };
+
+  const handleSendSingleProductWhatsApp = (prod: Product, type: 'stock' | 'expiry') => {
+    const phoneToUse = whatsAppPhoneInput.replace(/\D/g, '') || settings.whatsappAlertPhone || '5573501782';
+    const message = buildSingleProductWhatsAppMessage(prod, settings, type);
+    openWhatsAppNotification(phoneToUse, message, whatsAppCountryCodeInput || '52');
+  };
 
   // Form State for Add/Edit Product
   const [formData, setFormData] = useState<Partial<Product>>({
@@ -542,6 +616,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <span>📊 Excel</span>
           </button>
 
+          {/* WhatsApp Alert Center Button */}
+          <button
+            onClick={() => setIsWhatsAppAlertModalOpen(true)}
+            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow relative"
+            title="Enviar advertencias a celular por WhatsApp sobre medicamentos por caducar o agotados"
+          >
+            <MessageSquare className="w-4 h-4 text-emerald-200" />
+            <span>📲 WhatsApp</span>
+            {whatsAppAlertsData.totalAlertsCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-black rounded-full shadow-xs">
+                {whatsAppAlertsData.totalAlertsCount}
+              </span>
+            )}
+          </button>
+
           {/* Export Options (Excel, CSV, PDF, Update Template, Full DB) */}
           <button
             onClick={() => setIsExportModalOpen(true)}
@@ -598,6 +687,115 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* APARTADO DE ALERTAS POR WHATSAPP A CELULAR (STOCK Y CADUCIDADES) */}
+      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-emerald-700/50">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          
+          {/* Left: Info & Phone Config */}
+          <div className="space-y-2 flex-1">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shadow-inner shrink-0">
+                <MessageSquare className="w-5 h-5 text-emerald-300" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    Apartado de Alertas por WhatsApp a Celular
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                    Notificaciones en Tiempo Real
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-100/80">
+                  Recibe en tu WhatsApp avisos de medicamentos <strong>por caducar</strong>, <strong>ya caducados</strong>, <strong>agotados</strong> o con <strong>poco stock</strong>.
+                </p>
+              </div>
+            </div>
+
+            {/* In-Place Phone Editor */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-[11px] font-semibold text-emerald-200">
+                Número para recibir advertencias:
+              </span>
+              <div className="flex items-center bg-white/10 border border-emerald-400/40 rounded-lg px-2.5 py-1 backdrop-blur-xs">
+                <span className="text-xs font-bold text-emerald-300 mr-1.5">+{whatsAppCountryCodeInput}</span>
+                <input
+                  type="tel"
+                  value={whatsAppPhoneInput}
+                  onChange={(e) => setWhatsAppPhoneInput(e.target.value)}
+                  placeholder="5573501782"
+                  className="w-32 bg-transparent text-white font-mono font-bold text-xs focus:outline-none placeholder:text-slate-400"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveInlineWhatsAppPhone}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                title="Guardar este número permanentemente en el sistema"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Guardar Número</span>
+              </button>
+
+              {isPhoneSavedSuccess && (
+                <span className="text-[11px] font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500 px-2 py-0.5 rounded-md animate-in fade-in">
+                  ✓ Número guardado: +{whatsAppCountryCodeInput} {whatsAppPhoneInput}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Badges & Direct Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 lg:self-center">
+            {/* Status Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap justify-center sm:justify-start">
+              {whatsAppAlertsData.outOfStock.length > 0 && (
+                <span className="px-2.5 py-1 bg-rose-500/30 border border-rose-400/50 text-rose-200 text-xs font-bold rounded-lg flex items-center gap-1" title="Medicamentos agotados">
+                  <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{whatsAppAlertsData.outOfStock.length} Agotados</span>
+                </span>
+              )}
+              {whatsAppAlertsData.lowStock.length > 0 && (
+                <span className="px-2.5 py-1 bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-bold rounded-lg flex items-center gap-1" title="Medicamentos con poco stock">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{whatsAppAlertsData.lowStock.length} Poco Stock</span>
+                </span>
+              )}
+              {(whatsAppAlertsData.expired.length > 0 || whatsAppAlertsData.expiring.length > 0) && (
+                <span className="px-2.5 py-1 bg-yellow-500/30 border border-yellow-400/50 text-yellow-200 text-xs font-bold rounded-lg flex items-center gap-1" title="Medicamentos caducados o por caducar">
+                  <Clock className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>{whatsAppAlertsData.expired.length + whatsAppAlertsData.expiring.length} Caducidades</span>
+                </span>
+              )}
+            </div>
+
+            {/* Direct WhatsApp Actions */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSendAllWhatsAppAlerts}
+                className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                title={`Enviar reporte sanitario y de existencias por WhatsApp a +${whatsAppCountryCodeInput} ${whatsAppPhoneInput}`}
+              >
+                <Send className="w-4 h-4 text-slate-950" />
+                <span>📲 Enviar Alerta WhatsApp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsWhatsAppAlertModalOpen(true)}
+                className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl border border-white/20 transition-colors cursor-pointer"
+                title="Configurar opciones avanzadas y ver vista previa del mensaje"
+              >
+                <Sliders className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -922,6 +1120,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         >
                           <ArrowUpRight className="w-3.5 h-3.5" />
                         </button>
+
+                        {/* Quick WhatsApp Alert for this specific product */}
+                        {(isLowStock || exp.daysLeft <= 60 || p.stock === 0) && (
+                          <button
+                            onClick={() => handleSendSingleProductWhatsApp(p, exp.daysLeft <= 60 ? 'expiry' : 'stock')}
+                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors cursor-pointer"
+                            title={`Enviar aviso por WhatsApp a ${whatsAppPhoneInput} sobre ${p.name}`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                        )}
 
                         {/* Edit Product */}
                         <button
@@ -1813,6 +2022,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         movements={movements}
         payments={payments}
         cashCuts={cashCuts}
+      />
+
+      {/* WhatsApp Alerts & Phone Configuration Modal */}
+      <WhatsAppAlertModal
+        isOpen={isWhatsAppAlertModalOpen}
+        onClose={() => setIsWhatsAppAlertModalOpen(false)}
+        products={products}
+        settings={settings}
+        onSaveSettings={(newSettings) => {
+          if (onSaveSettings) {
+            onSaveSettings(newSettings);
+          }
+        }}
       />
 
     </div>

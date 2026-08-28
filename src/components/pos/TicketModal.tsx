@@ -1,7 +1,26 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Sale, PharmacySettings, Customer, DebtPayment } from '../../types/pharmacy';
 import { formatCurrency, formatDateTime, formatDate } from '../../utils/formatters';
-import { Printer, X, Download, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { 
+  Printer, 
+  X, 
+  Download, 
+  CheckCircle2, 
+  ShieldAlert, 
+  Send, 
+  MessageSquare, 
+  Copy, 
+  Check, 
+  Smartphone,
+  Zap
+} from 'lucide-react';
+import { 
+  buildWhatsAppTicketMessage, 
+  buildWhatsAppPaymentMessage, 
+  openWhatsAppNotification, 
+  formatPhoneDisplay, 
+  getWhatsAppCleanPhone 
+} from '../../utils/whatsappAlerts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -21,8 +40,57 @@ export const TicketModal: React.FC<TicketModalProps> = ({
   onClose,
 }) => {
   const printAreaRef = useRef<HTMLDivElement>(null);
+  const [phone, setPhone] = useState<string>(() => {
+    return customer?.phone || settings.whatsappAlertPhone || '';
+  });
+  const [copied, setCopied] = useState(false);
+  const [sentStatus, setSentStatus] = useState<string | null>(null);
+
+  const countryCode = settings.whatsappCountryCode || '52';
+
+  // Build current message text
+  const messageText = sale 
+    ? buildWhatsAppTicketMessage(sale, settings, customer) 
+    : payment 
+      ? buildWhatsAppPaymentMessage(payment, settings, customer) 
+      : '';
+
+  // Automatic send effect if enabled in settings
+  useEffect(() => {
+    if (settings.whatsappAutoSendTicket && phone && messageText) {
+      const timer = setTimeout(() => {
+        const opened = openWhatsAppNotification(phone, messageText, countryCode);
+        if (opened) {
+          setSentStatus('Enviado automáticamente');
+        }
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [settings.whatsappAutoSendTicket, phone, messageText, countryCode]);
 
   if (!sale && !payment) return null;
+
+  const handleSendWhatsApp = () => {
+    if (!phone.trim()) {
+      alert('Por favor ingrese un número de teléfono para enviar por WhatsApp.');
+      return;
+    }
+    const success = openWhatsAppNotification(phone, messageText, countryCode);
+    if (success) {
+      setSentStatus('¡Abierto en WhatsApp!');
+      setTimeout(() => setSentStatus(null), 4000);
+    }
+  };
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(messageText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -44,17 +112,37 @@ export const TicketModal: React.FC<TicketModalProps> = ({
     doc.line(5, 25, 75, 25);
 
     if (sale) {
+      const isCancelled = sale.status === 'cancelled' || sale.status === 'refunded';
+
+      if (isCancelled) {
+        doc.setFillColor(254, 226, 226);
+        doc.rect(5, 27, 70, 10, 'F');
+        doc.setTextColor(185, 28, 28);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(sale.status === 'refunded' ? '*** DEVOLUCIÓN APLICADA ***' : '*** VENTA CANCELADA ***', 40, 31, { align: 'center' });
+        doc.setFontSize(6.5);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Motivo: ${sale.cancelledReason || 'Cancelación de venta'}`, 40, 35, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+      }
+
+      const startHeaderY = isCancelled ? 42 : 30;
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`FOLIO DE VENTA: ${sale.folio}`, 40, 30, { align: 'center' });
+      doc.text(`FOLIO DE VENTA: ${sale.folio}`, 40, startHeaderY, { align: 'center' });
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Fecha: ${formatDateTime(sale.date)}`, 5, 35);
-      doc.text(`Cliente: ${sale.customerName || 'Público General'}`, 5, 39);
-      doc.text(`Tipo Pago: ${sale.paymentMethod.toUpperCase()}`, 5, 43);
-      doc.line(5, 46, 75, 46);
+      doc.text(`Fecha: ${formatDateTime(sale.date)}`, 5, startHeaderY + 5);
+      doc.text(`Cliente: ${sale.customerName || 'Público General'}`, 5, startHeaderY + 9);
+      doc.text(`Tipo Pago: ${sale.paymentMethod.toUpperCase()}`, 5, startHeaderY + 13);
+      if (isCancelled && sale.cancelledAt) {
+        doc.text(`Cancelado el: ${formatDateTime(sale.cancelledAt)}`, 5, startHeaderY + 17);
+      }
+      const lineY = isCancelled ? startHeaderY + 20 : startHeaderY + 16;
+      doc.line(5, lineY, 75, lineY);
 
-      let currentY = 51;
+      let currentY = lineY + 5;
       doc.setFont('helvetica', 'bold');
       doc.text('CANT  PRODUCTO', 5, currentY);
       doc.text('TOTAL', 75, currentY, { align: 'right' });
@@ -122,7 +210,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header Actions */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50">
@@ -156,6 +244,61 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           </div>
         </div>
 
+        {/* WhatsApp Dispatcher Bar */}
+        <div className="bg-emerald-50 border-b border-emerald-200 p-3 sm:px-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-emerald-900 text-xs font-bold">
+              <Smartphone className="w-4 h-4 text-emerald-600" />
+              <span>Enviar Comprobante por WhatsApp</span>
+            </div>
+            {settings.whatsappAutoSendTicket && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-200/70 text-emerald-800 text-[10px] font-bold rounded-full">
+                <Zap className="w-3 h-3 text-emerald-700" /> Auto-envío
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                +{countryCode}
+              </div>
+              <input
+                type="tel"
+                placeholder="10 dígitos del celular"
+                value={phone}
+                onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                className="w-full pl-11 pr-3 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-bold"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98 shrink-0"
+              title="Abrir WhatsApp con el comprobante"
+            >
+              <Send className="w-3.5 h-3.5 text-white" />
+              <span>Enviar WhatsApp</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyMessage}
+              className="p-1.5 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg transition-colors cursor-pointer shrink-0"
+              title="Copiar texto del mensaje"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {sentStatus && (
+            <div className="text-[11px] text-emerald-700 font-bold mt-1.5 text-center flex items-center justify-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {sentStatus}
+            </div>
+          )}
+        </div>
+
         {/* Printable Ticket Receipt Preview (Thermal 80mm styling) */}
         <div className="flex-1 overflow-y-auto p-4 bg-slate-100 flex justify-center">
           <div
@@ -178,6 +321,24 @@ export const TicketModal: React.FC<TicketModalProps> = ({
             {/* Sale / Payment Info */}
             {sale && (
               <>
+                {(sale.status === 'cancelled' || sale.status === 'refunded') && (
+                  <div className="my-2 p-2 bg-rose-50 border border-rose-300 rounded text-center">
+                    <div className="text-xs font-black text-rose-700 uppercase tracking-wide">
+                      {sale.status === 'refunded' ? '⚠️ Devolución Registrada' : '🚫 Venta Cancelada'}
+                    </div>
+                    {sale.cancelledReason && (
+                      <div className="text-[10px] text-rose-600 font-medium mt-0.5">
+                        Motivo: {sale.cancelledReason}
+                      </div>
+                    )}
+                    {sale.cancelledAt && (
+                      <div className="text-[9px] text-slate-500 mt-0.5">
+                        {formatDateTime(sale.cancelledAt)}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="py-2.5 border-b border-dashed border-slate-400 space-y-1">
                   <div className="flex justify-between font-bold">
                     <span>FOLIO:</span>
@@ -337,3 +498,4 @@ export const TicketModal: React.FC<TicketModalProps> = ({
     </div>
   );
 };
+

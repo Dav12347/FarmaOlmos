@@ -44,6 +44,8 @@ interface MovementsViewProps {
   onRegisterMovement: (movement: InventoryMovement, updatedProducts: Product[]) => void;
   onUpdateMovement?: (movement: InventoryMovement, updatedProducts: Product[]) => void;
   onDeleteMovement?: (movementId: string, updatedProducts: Product[]) => void;
+  onWipeMovements?: () => void;
+  onWipeExits?: () => void;
 }
 
 export const MovementsView: React.FC<MovementsViewProps> = ({
@@ -54,6 +56,8 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
   onRegisterMovement,
   onUpdateMovement,
   onDeleteMovement,
+  onWipeMovements,
+  onWipeExits,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'entry' | 'exit'>('all');
@@ -599,6 +603,28 @@ export const MovementsView: React.FC<MovementsViewProps> = ({
           >
             Solo Salidas
           </button>
+
+          {onWipeExits && movements.some(m => m.type === 'exit') && (
+            <button
+              onClick={onWipeExits}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 cursor-pointer ml-auto"
+              title="Eliminar todas las salidas de inventario y dejar la sección de salidas vacía"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Quitar Todas las Salidas (Dejar Vacío)</span>
+            </button>
+          )}
+
+          {onWipeMovements && movements.length > 0 && (
+            <button
+              onClick={onWipeMovements}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 cursor-pointer ${movements.some(m => m.type === 'exit') ? '' : 'ml-auto'}`}
+              title="Borrar entradas y salidas de prueba para dejar el historial limpio"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-amber-700" />
+              <span>Limpiar Historial de Pruebas</span>
+            </button>
+          )}
         </div>
       </div>
 

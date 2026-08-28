@@ -259,6 +259,18 @@ export interface PharmacySettings {
   currencySymbol: string;
   taxRate: number; // e.g. 0.16 or 0
   allowDebtExceedLimit: boolean;
+  // WhatsApp Alert & Automation Configuration
+  whatsappAlertPhone?: string; // e.g. "5573501782"
+  whatsappCountryCode?: string; // default "52"
+  whatsappAlertsEnabled?: boolean;
+  whatsappAlertExpiryDays?: number; // default 30 days
+  whatsappAlertIncludeLowStock?: boolean;
+  whatsappAlertIncludeOutOfStock?: boolean;
+  whatsappAlertIncludeExpired?: boolean;
+  whatsappAlertIncludeExpiring?: boolean;
+  whatsappAutoSendTicket?: boolean; // Auto open/send ticket on sale
+  whatsappAutoSendCashCut?: boolean; // Auto send cash cut summary on shift close
+  whatsappAutoSendCancellation?: boolean; // Auto send alert on cancelled sale
 }
 
 export type UserRole = 'admin' | 'pharmacist' | 'cashier';

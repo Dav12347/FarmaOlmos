@@ -20,7 +20,7 @@ import {
 import { Product, Customer, AppUser } from '../types/pharmacy';
 import { getExpiryStatus } from '../utils/formatters';
 
-export type ActiveTab = 'pos' | 'inventory' | 'movements' | 'customers' | 'reports' | 'settings';
+export type ActiveTab = 'pos' | 'inventory' | 'customers' | 'reports' | 'settings';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -75,7 +75,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navLinks = [
     { id: 'pos' as ActiveTab, label: 'Punto de Venta', icon: ShoppingCart, count: 0 },
     { id: 'inventory' as ActiveTab, label: 'Inventario', icon: Package, count: lowStockCount + criticalExpiryCount, badgeColor: 'bg-rose-500 text-white' },
-    { id: 'movements' as ActiveTab, label: 'Entradas/Salidas', icon: ArrowLeftRight, count: 0 },
     { id: 'customers' as ActiveTab, label: 'Créditos y Deudas', icon: Users, count: totalDebtors, badgeColor: 'bg-amber-600 text-white' },
     { id: 'reports' as ActiveTab, label: 'Ventas y Reportes', icon: FileSpreadsheet, count: 0 },
     { id: 'settings' as ActiveTab, label: 'Ajustes', icon: Settings, count: 0 },
@@ -342,17 +341,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           {(lowStockCount + criticalExpiryCount) > 0 && (
             <span className="absolute top-0 right-1 w-2 h-2 bg-rose-500 rounded-full" />
           )}
-        </button>
-
-        {/* Movimientos */}
-        <button
-          onClick={() => setActiveTab('movements')}
-          className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition-all cursor-pointer ${
-            activeTab === 'movements' ? 'text-teal-400 font-bold scale-105' : 'text-slate-400'
-          }`}
-        >
-          <ArrowLeftRight className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">Kardex</span>
         </button>
 
         {/* Créditos */}

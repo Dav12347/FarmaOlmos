@@ -31,10 +31,13 @@ import {
   testFirestoreConnection 
 } from './firebase';
 import { generateFolio } from './utils/formatters';
+import { 
+  buildWhatsAppSaleCancellationMessage, 
+  openWhatsAppNotification 
+} from './utils/whatsappAlerts';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { POSView } from './components/pos/POSView';
 import { InventoryView } from './components/inventory/InventoryView';
-import { MovementsView } from './components/movements/MovementsView';
 import { CustomersView } from './components/customers/CustomersView';
 import { ReportsView } from './components/reports/ReportsView';
 import { SettingsView } from './components/settings/SettingsView';
@@ -105,67 +108,32 @@ export default function App() {
 
         // 3. Subscribe to Real-Time Cloud Listeners
         const unsubProducts = CloudSyncService.subscribeProducts((cloudProducts) => {
-          if (cloudProducts.length > 0) {
-            setProducts(cloudProducts);
-            StorageManager.saveProducts(cloudProducts, true);
-          } else {
-            const localProducts = StorageManager.getProducts();
-            if (localProducts.length > 0) {
-              CloudSyncService.saveProductsBatch(localProducts).catch(console.warn);
-            }
-          }
+          setProducts(cloudProducts);
+          StorageManager.saveProducts(cloudProducts, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubCustomers = CloudSyncService.subscribeCustomers((cloudCustomers) => {
-          if (cloudCustomers.length > 0) {
-            setCustomers(cloudCustomers);
-            StorageManager.saveCustomers(cloudCustomers, true);
-          } else {
-            const localCustomers = StorageManager.getCustomers();
-            if (localCustomers.length > 0) {
-              localCustomers.forEach(c => CloudSyncService.saveCustomer(c).catch(console.warn));
-            }
-          }
+          setCustomers(cloudCustomers);
+          StorageManager.saveCustomers(cloudCustomers, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubSales = CloudSyncService.subscribeSales((cloudSales) => {
-          if (cloudSales.length > 0) {
-            setSales(cloudSales);
-            StorageManager.saveSales(cloudSales, true);
-          } else {
-            const localSales = StorageManager.getSales();
-            if (localSales.length > 0) {
-              CloudSyncService.saveSalesBatch(localSales).catch(console.warn);
-            }
-          }
+          setSales(cloudSales);
+          StorageManager.saveSales(cloudSales, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubMovements = CloudSyncService.subscribeMovements((cloudMovements) => {
-          if (cloudMovements.length > 0) {
-            setMovements(cloudMovements);
-            StorageManager.saveMovements(cloudMovements, true);
-          } else {
-            const localMovements = StorageManager.getMovements();
-            if (localMovements.length > 0) {
-              CloudSyncService.saveMovementsBatch(localMovements).catch(console.warn);
-            }
-          }
+          setMovements(cloudMovements);
+          StorageManager.saveMovements(cloudMovements, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubPayments = CloudSyncService.subscribePayments((cloudPayments) => {
-          if (cloudPayments.length > 0) {
-            setPayments(cloudPayments);
-            StorageManager.savePayments(cloudPayments, true);
-          } else {
-            const localPayments = StorageManager.getPayments();
-            if (localPayments.length > 0) {
-              CloudSyncService.savePaymentsBatch(localPayments).catch(console.warn);
-            }
-          }
+          setPayments(cloudPayments);
+          StorageManager.savePayments(cloudPayments, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
@@ -173,38 +141,19 @@ export default function App() {
           if (cloudSettings && cloudSettings.name) {
             setSettings(cloudSettings);
             StorageManager.saveSettings(cloudSettings, true);
-          } else {
-            const localSettings = StorageManager.getSettings();
-            if (localSettings && localSettings.name) {
-              CloudSyncService.saveSettings(localSettings).catch(console.warn);
-            }
           }
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubCashCuts = CloudSyncService.subscribeCashCuts((cloudCuts) => {
-          if (cloudCuts.length > 0) {
-            setCashCuts(cloudCuts);
-            StorageManager.saveCashCuts(cloudCuts, true);
-          } else {
-            const localCuts = StorageManager.getCashCuts();
-            if (localCuts.length > 0) {
-              CloudSyncService.saveCashCutsBatch(localCuts).catch(console.warn);
-            }
-          }
+          setCashCuts(cloudCuts);
+          StorageManager.saveCashCuts(cloudCuts, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
         const unsubCashMovements = CloudSyncService.subscribeCashMovements((cloudMovs) => {
-          if (cloudMovs.length > 0) {
-            setCashMovements(cloudMovs);
-            StorageManager.saveCashMovements(cloudMovs, true);
-          } else {
-            const localMovs = StorageManager.getCashMovements();
-            if (localMovs.length > 0) {
-              CloudSyncService.saveCashMovementsBatch(localMovs).catch(console.warn);
-            }
-          }
+          setCashMovements(cloudMovs);
+          StorageManager.saveCashMovements(cloudMovs, true);
           setIsCloudConnected(true);
         }, () => setIsCloudConnected(false));
 
@@ -346,6 +295,24 @@ export default function App() {
       await CloudSyncService.deleteMovement(movementId, updatedProducts);
     } catch (e) {
       console.warn('Cloud movement delete note:', e);
+    }
+  };
+
+  // Handle wiping all exit movements (salidas) leaving 0 salidas
+  const handleWipeAllExits = async () => {
+    if (window.confirm('¿Está seguro de eliminar todas las salidas de inventario y dejar la sección de salidas vacía? Las entradas de inventario se mantendrán intactas.')) {
+      const onlyEntries = movements.filter(m => m.type !== 'exit');
+      setMovements(onlyEntries);
+      StorageManager.wipeAllExits();
+    }
+  };
+
+  // Handle wiping all test movements (both inventory and cash)
+  const handleWipeAllTestMovements = async () => {
+    if (window.confirm('¿Está seguro de eliminar todas las entradas y salidas de prueba? Su catálogo de medicamentos y clientes se mantendrán intactos.')) {
+      setMovements([]);
+      setCashMovements([]);
+      StorageManager.wipeAllTestMovements();
     }
   };
 
@@ -581,7 +548,32 @@ export default function App() {
       }
     }
 
-    // 5. Cloud Sync with Firestore
+    // 5. Automatic Cash Exit if refunded in cash from a previous shift's sale
+    // If the sale was paid in cash and occurred before the current shift opened,
+    // money is taken from today's drawer, so a cash movement is registered to balance the drawer.
+    let automaticCashMovement: CashMovement | undefined = undefined;
+    if (sale.paymentMethod === 'cash' && activeShift) {
+      const saleTime = new Date(sale.date).getTime();
+      const shiftStartTime = new Date(activeShift.openedAt).getTime();
+      if (saleTime < shiftStartTime) {
+        automaticCashMovement = {
+          id: `mov-cash-refund-${Date.now()}`,
+          folio: generateFolio('SC', cashMovements.length + 1),
+          type: 'out',
+          amount: refundAmount,
+          reason: `Devolución de efectivo - Ticket ${sale.folio} (Turno Anterior)`,
+          date: now,
+          registeredBy: 'Cajero / Devolución',
+          notes: `Cancelación/Devolución aplicada a venta anterior. Motivo: ${reason}`,
+        };
+        const nextCashMovements = [automaticCashMovement, ...cashMovements];
+        setCashMovements(nextCashMovements);
+        StorageManager.saveCashMovements(nextCashMovements, true);
+        CloudSyncService.saveCashMovement(automaticCashMovement).catch(console.warn);
+      }
+    }
+
+    // 6. Cloud Sync with Firestore
     try {
       await CloudSyncService.cancelSaleInCloud(
         updatedSale,
@@ -591,6 +583,16 @@ export default function App() {
       );
     } catch (err) {
       console.warn('Cloud sync cancel sale note:', err);
+    }
+
+    // 7. WhatsApp Cancellation Notification
+    if (settings.whatsappAutoSendCancellation && settings.whatsappAlertPhone) {
+      const cancellationMsg = buildWhatsAppSaleCancellationMessage(
+        updatedSale, 
+        settings, 
+        currentUser?.name || 'Cajero / Farmacéutico'
+      );
+      openWhatsAppNotification(settings.whatsappAlertPhone, cancellationMsg, settings.whatsappCountryCode || '52');
     }
   };
 
@@ -718,6 +720,7 @@ export default function App() {
             onSaveProduct={handleSaveProduct}
             onDeleteProduct={handleDeleteProduct}
             onRegisterMovement={handleRegisterMovement}
+            onSaveSettings={handleSaveSettings}
             movementsCount={movements.length}
             onOpenPhotoSearch={() => setIsPhotoSearchOpen(true)}
             customers={customers}
@@ -725,18 +728,6 @@ export default function App() {
             movements={movements}
             payments={payments}
             cashCuts={cashCuts}
-          />
-        )}
-
-        {activeTab === 'movements' && (
-          <MovementsView
-            movements={movements}
-            products={products}
-            settings={settings}
-            movementsCount={movements.length}
-            onRegisterMovement={handleRegisterMovement}
-            onUpdateMovement={handleUpdateMovement}
-            onDeleteMovement={handleDeleteMovement}
           />
         )}
 

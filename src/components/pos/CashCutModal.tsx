@@ -9,6 +9,11 @@ import {
 } from '../../types/pharmacy';
 import { formatCurrency, formatDateTime, formatDate, generateFolio } from '../../utils/formatters';
 import { 
+  buildWhatsAppCashCutMessage, 
+  openWhatsAppNotification, 
+  formatPhoneDisplay 
+} from '../../utils/whatsappAlerts';
+import { 
   X, 
   DollarSign, 
   Calculator, 
@@ -32,7 +37,11 @@ import {
   ShieldCheck,
   FileSpreadsheet,
   Trash2,
-  Edit3
+  Edit3,
+  Send,
+  Smartphone,
+  Copy,
+  Check
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 
@@ -97,6 +106,8 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
   const [cutNotes, setCutNotes] = useState('');
   const [cashToWithdraw, setCashToWithdraw] = useState('');
   const [nextShiftFloat, setNextShiftFloat] = useState(activeShift.initialCash.toString());
+  const [cutWhatsAppPhone, setCutWhatsAppPhone] = useState(settings.whatsappAlertPhone || '');
+  const [cutCopied, setCutCopied] = useState(false);
 
   // Cash Movement Modal inline state
   const [isAddingMovement, setIsAddingMovement] = useState(false);
@@ -133,27 +144,48 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
   }, [cashMovements, shiftStartTime]);
 
   // --- Financial Calculations for Active Shift ---
+  // Helper for net revenue per sale (subtracting partial refunds)
+  const getSaleNetRevenue = (s: Sale) => {
+    if (s.status === 'cancelled') return 0;
+    if (s.status === 'refunded') return Math.max(0, s.total - (s.refundedAmount || 0));
+    return s.total;
+  };
+
   // Active (non-cancelled) sales by payment method
   const activeSales = currentShiftSales.filter(s => s.status !== 'cancelled');
   const cancelledSales = currentShiftSales.filter(s => s.status === 'cancelled');
+  const refundedSales = currentShiftSales.filter(s => s.status === 'refunded');
 
   const cashSalesTotal = activeSales
     .filter(s => s.paymentMethod === 'cash')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
 
   const cardSalesTotal = activeSales
     .filter(s => s.paymentMethod === 'card')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
 
   const transferSalesTotal = activeSales
     .filter(s => s.paymentMethod === 'transfer')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
 
   const creditSalesTotal = activeSales
     .filter(s => s.paymentMethod === 'credit')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
 
   const totalSalesRevenue = cashSalesTotal + cardSalesTotal + transferSalesTotal + creditSalesTotal;
+
+  // Debt payments collected in cash during this shift
+  const debtPaymentsCashTotal = currentShiftPayments
+    .filter(p => p.paymentMethod === 'cash')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const debtPaymentsCardTotal = currentShiftPayments
+    .filter(p => p.paymentMethod === 'card')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const debtPaymentsTransferTotal = currentShiftPayments
+    .filter(p => p.paymentMethod === 'transfer')
+    .reduce((sum, p) => sum + p.amount, 0);
 
   // Manual cash movements (Entradas y Salidas)
   const cashInTotal = currentShiftMovements
@@ -164,15 +196,20 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
     .filter(m => m.type === 'out')
     .reduce((sum, m) => sum + m.amount, 0);
 
-  // Cancelled sales in cash
+  // Cancelled & refunded totals in cash
   const cancelledCashSalesTotal = cancelledSales
     .filter(s => s.paymentMethod === 'cash')
     .reduce((sum, s) => sum + s.total, 0);
 
-  // Expected cash in drawer: Fondo Inicial + Ventas en Efectivo + Entradas - Salidas
+  const refundedCashTotal = refundedSales
+    .filter(s => s.paymentMethod === 'cash')
+    .reduce((sum, s) => sum + (s.refundedAmount || 0), 0);
+
+  // Expected cash in drawer: Fondo Inicial + Ventas en Efectivo (Netas) + Abonos en Efectivo + Entradas - Salidas
   const expectedCash = 
     activeShift.initialCash + 
     cashSalesTotal + 
+    debtPaymentsCashTotal +
     cashInTotal - 
     cashOutTotal;
 
@@ -313,15 +350,15 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
       creditSalesTotal,
       totalSalesCount: activeSales.length,
 
-      debtPaymentsCashTotal: 0,
-      debtPaymentsCardTotal: 0,
-      debtPaymentsTransferTotal: 0,
+      debtPaymentsCashTotal,
+      debtPaymentsCardTotal,
+      debtPaymentsTransferTotal,
 
       cashInTotal,
       cashOutTotal,
 
       cancelledCashSalesTotal,
-      refundedCashTotal: 0,
+      refundedCashTotal,
 
       expectedCash,
       actualCashCount,
@@ -337,7 +374,23 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
     if (window.confirm(`¿Confirmar cierre de turno y corte de caja ${folio}?\n\n- Efectivo Esperado: ${formatCurrency(expectedCash)}\n- Efectivo Contado: ${formatCurrency(actualCashCount)}\n- Diferencia: ${formatCurrency(difference)}\n- Retiro: ${formatCurrency(withdrawNum)}\n- Fondo próximo turno: ${formatCurrency(nextFloatNum)}`)) {
       onSaveCashCut(newCashCut, nextFloatNum);
       setViewingHistoricCut(newCashCut);
+
+      // Auto-send to WhatsApp if enabled
+      if (settings.whatsappAutoSendCashCut && settings.whatsappAlertPhone) {
+        const message = buildWhatsAppCashCutMessage(newCashCut, settings);
+        openWhatsAppNotification(settings.whatsappAlertPhone, message, settings.whatsappCountryCode || '52');
+      }
     }
+  };
+
+  const handleSendCashCutWhatsApp = (cut: CashCut, targetPhone?: string) => {
+    const phone = targetPhone || settings.whatsappAlertPhone;
+    if (!phone) {
+      alert('Por favor configure o ingrese un número de WhatsApp en Configuración.');
+      return;
+    }
+    const message = buildWhatsAppCashCutMessage(cut, settings);
+    openWhatsAppNotification(phone, message, settings.whatsappCountryCode || '52');
   };
 
   // PDF Ticket Generator for Cash Cut
@@ -1287,6 +1340,60 @@ export const CashCutModal: React.FC<CashCutModalProps> = ({
                     className="p-1.5 text-slate-400 hover:text-white rounded-lg"
                   >
                     <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* WhatsApp Quick Dispatch Bar */}
+              <div className="bg-emerald-50 border-b border-emerald-200 p-3 px-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 text-emerald-900 text-xs font-bold">
+                    <Smartphone className="w-4 h-4 text-emerald-600" />
+                    <span>Enviar Resumen de Corte a WhatsApp</span>
+                  </div>
+                  {settings.whatsappAutoSendCashCut && (
+                    <span className="px-2 py-0.5 bg-emerald-200/70 text-emerald-800 text-[10px] font-bold rounded-full">
+                      Auto-envío activo
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                      +{settings.whatsappCountryCode || '52'}
+                    </div>
+                    <input
+                      type="tel"
+                      placeholder="10 dígitos del WhatsApp"
+                      value={cutWhatsAppPhone}
+                      onChange={e => setCutWhatsAppPhone(e.target.value.replace(/\D/g, ''))}
+                      className="w-full pl-11 pr-3 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-bold"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSendCashCutWhatsApp(viewingHistoricCut, cutWhatsAppPhone)}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98 shrink-0"
+                    title="Enviar reporte por WhatsApp"
+                  >
+                    <Send className="w-3.5 h-3.5 text-white" />
+                    <span>Enviar WhatsApp</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const msg = buildWhatsAppCashCutMessage(viewingHistoricCut, settings);
+                      await navigator.clipboard.writeText(msg);
+                      setCutCopied(true);
+                      setTimeout(() => setCutCopied(false), 2000);
+                    }}
+                    className="p-1.5 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg transition-colors cursor-pointer shrink-0"
+                    title="Copiar texto del reporte"
+                  >
+                    {cutCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
               </div>

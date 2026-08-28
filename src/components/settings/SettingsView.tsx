@@ -27,8 +27,19 @@ import {
   LogOut,
   FileSpreadsheet,
   FileText,
-  Database
+  Database,
+  MessageSquare,
+  Phone,
+  Send,
+  Sliders,
+  Calendar,
+  AlertOctagon,
+  Clock
 } from 'lucide-react';
+import { 
+  buildWhatsAppStockAlertMessage, 
+  openWhatsAppNotification 
+} from '../../utils/whatsappAlerts';
 
 interface SettingsViewProps {
   settings: PharmacySettings;
@@ -163,6 +174,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onRefreshData();
     setIsWipeModalOpen(false);
     alert('✅ Sistema limpiado con éxito. Ahora el sistema está completamente virgen (0 productos, 0 clientes, 0 ventas) para que ingreses tu inventario.');
+  };
+
+  const handleWipeOnlyMovements = () => {
+    if (confirm('¿Desea eliminar TODAS las entradas y salidas de prueba (tanto de inventario como de caja) y dejar el historial de movimientos 100% limpio? Sus productos y clientes se mantendrán intactos.')) {
+      StorageManager.wipeAllTestMovements();
+      onRefreshData();
+      alert('✅ Entradas y salidas de prueba eliminadas con éxito. El historial ha quedado limpio y virgen.');
+    }
   };
 
   const handleLoadDemo = () => {
@@ -446,13 +465,194 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         </div>
 
+        {/* WHATSAPP ALERTS CONFIGURATION SECTION */}
+        <div className="pt-4 border-t border-slate-200 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
+              <MessageSquare className="w-4 h-4 text-emerald-600" />
+              <span>Configuración de Alertas por WhatsApp a Celular</span>
+            </div>
+            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-300">
+              Stock y Caducidades
+            </span>
+          </div>
+
+          <p className="text-slate-600 text-xs">
+            Especifica el número de teléfono donde deseas recibir advertencias automáticas de medicamentos <strong>por caducar</strong>, <strong>ya caducados</strong> o con <strong>existencias bajas / agotadas</strong>.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
+            <div>
+              <label className="block font-bold text-slate-900 mb-1">
+                Código de País:
+              </label>
+              <select
+                value={formData.whatsappCountryCode || '52'}
+                onChange={e => setFormData({ ...formData, whatsappCountryCode: e.target.value })}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 font-medium"
+              >
+                <option value="52">🇲🇽 México (+52)</option>
+                <option value="1">🇺🇸 Estados Unidos / Canadá (+1)</option>
+                <option value="54">🇦🇷 Argentina (+54)</option>
+                <option value="57">🇨🇴 Colombia (+57)</option>
+                <option value="56">🇨🇱 Chile (+56)</option>
+                <option value="51">🇵🇪 Perú (+51)</option>
+                <option value="34">🇪🇸 España (+34)</option>
+                <option value="502">🇬🇹 Guatemala (+502)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-900 mb-1">
+                Número de Celular para Advertencias (WhatsApp): *
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="tel"
+                  value={formData.whatsappAlertPhone || ''}
+                  onChange={e => setFormData({ ...formData, whatsappAlertPhone: e.target.value.replace(/\D/g, '') })}
+                  placeholder="5573501782"
+                  className="w-full px-3 py-2 bg-white border border-emerald-400 rounded-lg font-mono font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const products = StorageManager.getProducts();
+                    const msg = buildWhatsAppStockAlertMessage(products, formData);
+                    openWhatsAppNotification(formData.whatsappAlertPhone || '5573501782', msg, formData.whatsappCountryCode || '52');
+                  }}
+                  className="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer shadow-xs"
+                  title="Probar envío a WhatsApp"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Probar</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Número configurado: <strong>+{formData.whatsappCountryCode || '52'} {formData.whatsappAlertPhone || '5573501782'}</strong>
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-900 mb-1">
+                Anticipación de Caducidades (Días):
+              </label>
+              <select
+                value={formData.whatsappAlertExpiryDays || 30}
+                onChange={e => setFormData({ ...formData, whatsappAlertExpiryDays: Number(e.target.value) })}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 font-medium"
+              >
+                <option value="15">15 días antes</option>
+                <option value="30">30 días antes (Recomendado)</option>
+                <option value="45">45 días antes</option>
+                <option value="60">60 días antes</option>
+                <option value="90">90 días antes</option>
+              </select>
+            </div>
+
+            {/* Automation Options */}
+            <div className="sm:col-span-2 pt-2 border-t border-emerald-200">
+              <label className="block font-bold text-emerald-950 mb-2 text-xs uppercase tracking-wide">
+                ⚡ Automatizaciones y Envíos Automáticos a WhatsApp:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-start gap-2.5 p-2.5 bg-white rounded-lg border border-emerald-300 cursor-pointer hover:bg-emerald-50/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAutoSendTicket ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAutoSendTicket: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded mt-0.5"
+                  />
+                  <div className="text-[11px] leading-tight">
+                    <span className="font-bold text-slate-900 block">Comprobante de Venta</span>
+                    <span className="text-slate-500">Abrir WhatsApp con el ticket digital al concretar venta o abono</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-2.5 bg-white rounded-lg border border-emerald-300 cursor-pointer hover:bg-emerald-50/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAutoSendCashCut ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAutoSendCashCut: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded mt-0.5"
+                  />
+                  <div className="text-[11px] leading-tight">
+                    <span className="font-bold text-slate-900 block">Corte de Caja</span>
+                    <span className="text-slate-500">Enviar reporte y arqueo al cerrar el turno al número de WhatsApp</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-2.5 bg-white rounded-lg border border-emerald-300 cursor-pointer hover:bg-emerald-50/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAutoSendCancellation ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAutoSendCancellation: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded mt-0.5"
+                  />
+                  <div className="text-[11px] leading-tight">
+                    <span className="font-bold text-slate-900 block">Cancelaciones y Mermas</span>
+                    <span className="text-slate-500">Notificar de inmediato cuando se anule o devuelva una venta</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block font-bold text-slate-900 mb-1">
+                Módulos Activos en el Reporte de Stock y Caducidad:
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAlertIncludeOutOfStock ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAlertIncludeOutOfStock: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                  <span>Agotados (0 Stock)</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAlertIncludeLowStock ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAlertIncludeLowStock: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                  <span>Poco Stock</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAlertIncludeExpired ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAlertIncludeExpired: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                  <span>Ya Caducados</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.whatsappAlertIncludeExpiring ?? true}
+                    onChange={e => setFormData({ ...formData, whatsappAlertIncludeExpiring: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                  <span>Por Caducar</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="flex justify-end pt-3">
           <button
             type="submit"
             className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <Save className="w-4 h-4 text-white" />
-            <span>Guardar Datos de Farmacia</span>
+            <span>Guardar Datos y Configuración de Farmacia</span>
           </button>
         </div>
 
@@ -466,17 +666,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         <p className="text-slate-700 leading-relaxed">
-          Usa esta opción para <strong>vaciar completamente la base de datos</strong> (eliminar todos los productos, clientes, ventas, entradas y salidas de ejemplo) y dejar el sistema en blanco (0 productos) para registrar tu propio inventario real.
+          Usa estas opciones para <strong>depurar registros de prueba</strong> o vaciar completamente la base de datos para registrar tu propio inventario real.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleWipeOnlyMovements}
+            className="px-4 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+            title="Borra únicamente entradas y salidas de prueba de inventario y caja"
+          >
+            <RotateCcw className="w-4 h-4 text-white" />
+            <span>Limpiar Entradas y Salidas de Prueba (Inventario y Caja)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsWipeModalOpen(true)}
             className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-xs cursor-pointer transition-all"
           >
             <Trash2 className="w-4 h-4 text-white" />
-            <span>Vaciar Sistema a 0 Productos (Sistema Virgen)</span>
+            <span>Vaciar Sistema por Completo (Sistema Virgen)</span>
           </button>
 
           <button

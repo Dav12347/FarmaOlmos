@@ -1083,3 +1083,221 @@ export function exportProductsToJSON(products: Product[]) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Generates an official, printable PDF Acta/Comprobante for a single movement (Entrada, Salida, Merma, Caducidad, Compra)
+ */
+export function exportSingleMovementPDF(movement: InventoryMovement, settings: PharmacySettings) {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const isExit = movement.type === 'exit';
+  const isEntry = movement.type === 'entry';
+  const title = isExit 
+    ? 'ACTA DE SALIDA / MERMA SANITARIA DE MEDICAMENTOS'
+    : 'COMPROBANTE DE ENTRADA Y RECEPCIÓN DE INVENTARIO';
+
+  // Header Banner
+  const headerColor: [number, number, number] = isExit ? [185, 28, 28] : [15, 118, 110];
+  doc.setFillColor(...headerColor);
+  doc.rect(0, 0, 210, 24, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text(settings.name.toUpperCase(), 14, 10);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${title} | RFC: ${settings.rfc || 'GENÉRICO'}`, 14, 17);
+
+  // Movement Metadata Card
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, 28, 182, 34, 2, 2, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(14, 28, 182, 34, 2, 2, 'S');
+
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`FOLIO: ${movement.folio}`, 18, 35);
+  doc.text(`FECHA / HORA: ${formatDateTime(movement.date)}`, 110, 35);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text(`TIPO: ${isEntry ? 'ENTRADA DE STOCK (+)' : 'SALIDA DE STOCK (-)'}`, 18, 42);
+  doc.text(`MOTIVO: ${movement.reason.toUpperCase().replace('_', ' ')}`, 110, 42);
+
+  doc.text(`${isEntry ? 'PROVEEDOR:' : 'DESTINO / DISPOSICIÓN:'} ${movement.supplierOrDestination || 'N/A'}`, 18, 49);
+  doc.text(`REF / FACTURA: ${movement.referenceInvoice || 'S/N'}`, 110, 49);
+
+  doc.text(`RESPONSABLE: ${movement.registeredBy || 'Farmacéutico'}`, 18, 56);
+  if (movement.notes) {
+    doc.text(`NOTAS: ${movement.notes}`, 110, 56);
+  }
+
+  // Items Table
+  const tableBody = movement.items.map(it => [
+    it.productName,
+    it.batchNumber || '-',
+    it.expirationDate ? formatDate(it.expirationDate) : '-',
+    it.quantity.toString(),
+    formatCurrency(it.costPrice),
+    formatCurrency(it.subtotal || (it.costPrice * it.quantity)),
+  ]);
+
+  autoTable(doc, {
+    startY: 66,
+    head: [['Medicamento / Producto', 'Lote', 'Caducidad', 'Cantidad', 'Costo Unit.', 'Importe Total']],
+    body: tableBody,
+    theme: 'grid',
+    headStyles: { fillColor: headerColor, fontSize: 8.5, halign: 'center' },
+    styles: { fontSize: 8, cellPadding: 2.5 },
+    columnStyles: {
+      0: { cellWidth: 70 },
+      1: { cellWidth: 26, halign: 'center' },
+      2: { cellWidth: 26, halign: 'center' },
+      3: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+      4: { cellWidth: 22, halign: 'right' },
+      5: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  const finalY = (doc as any).lastAutoTable.finalY + 8;
+  const totalUnits = movement.items.reduce((s, it) => s + it.quantity, 0);
+
+  // Totals box
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(120, finalY, 76, 18, 2, 2, 'F');
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Total Piezas / Unidades:`, 124, finalY + 6);
+  doc.text(`Importe Total Valuado:`, 124, finalY + 13);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`${totalUnits} piezas`, 175, finalY + 6, { align: 'right' });
+  doc.setTextColor(isExit ? 185 : 15, isExit ? 28 : 118, isExit ? 28 : 110);
+  doc.setFontSize(10);
+  doc.text(formatCurrency(movement.totalValue), 190, finalY + 13, { align: 'right' });
+
+  // Signature Block
+  const sigY = Math.max(finalY + 36, 230);
+  doc.setDrawColor(148, 163, 184);
+  doc.line(20, sigY, 90, sigY);
+  doc.line(120, sigY, 190, sigY);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Firma Responsable de Registro', 55, sigY + 5, { align: 'center' });
+  doc.text(movement.registeredBy || 'Encargado de Farmacia', 55, sigY + 9, { align: 'center' });
+
+  doc.text('Sello y Firma Responsable Sanitario', 155, sigY + 5, { align: 'center' });
+  doc.text(settings.name, 155, sigY + 9, { align: 'center' });
+
+  // Footer
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Página ${i} de ${pageCount} - FarmaControl POS & Control Sanitario`, 14, 290);
+    doc.text(`Fecha de Impresión: ${new Date().toLocaleString('es-MX')}`, 135, 290);
+  }
+
+  const fileName = `${movement.folio}_${isExit ? 'Salida_Merma' : 'Entrada_Stock'}.pdf`;
+  doc.save(fileName);
+}
+
+/**
+ * Generates a full PDF report listing all selected inventory movements (Kardex audit report)
+ */
+export function exportMovementsListToPDF(
+  movements: InventoryMovement[],
+  settings: PharmacySettings,
+  filterTitle = 'REPORTE GENERAL DE MOVIMIENTOS (KARDEX)'
+) {
+  const doc = new jsPDF('l', 'mm', 'a4'); // Landscape for rich table columns
+  const dateStr = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Header Banner
+  doc.setFillColor(15, 118, 110);
+  doc.rect(0, 0, 297, 22, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(settings.name.toUpperCase(), 14, 9);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${filterTitle.toUpperCase()} | ${dateStr.toUpperCase()}`, 14, 16);
+
+  // KPI Summary Strip
+  const totalEntries = movements.filter(m => m.type === 'entry');
+  const totalExits = movements.filter(m => m.type === 'exit');
+  const totalEntriesVal = totalEntries.reduce((s, m) => s + m.totalValue, 0);
+  const totalExitsVal = totalExits.reduce((s, m) => s + m.totalValue, 0);
+
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(8.5);
+  doc.text(
+    `Total Registros: ${movements.length} | Entradas: ${totalEntries.length} (${formatCurrency(totalEntriesVal)}) | Salidas/Mermas: ${totalExits.length} (${formatCurrency(totalExitsVal)})`,
+    14,
+    28
+  );
+
+  const tableBody = movements.map(m => {
+    const isEntry = m.type === 'entry';
+    const itemsSummary = m.items.map(it => `${it.productName} (x${it.quantity})`).join(', ');
+    const totalQty = m.items.reduce((s, it) => s + it.quantity, 0);
+
+    return [
+      m.folio,
+      formatDateTime(m.date),
+      isEntry ? 'ENTRADA' : 'SALIDA',
+      m.reason.toUpperCase().replace('_', ' '),
+      m.supplierOrDestination || '-',
+      m.referenceInvoice || '-',
+      `${totalQty} un. (${itemsSummary})`,
+      formatCurrency(m.totalValue),
+      m.registeredBy || 'Farmacéutico',
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 32,
+    head: [['Folio', 'Fecha/Hora', 'Tipo', 'Motivo', 'Proveedor / Destino', 'Ref / Factura', 'Artículos', 'Importe', 'Responsable']],
+    body: tableBody.length > 0 ? tableBody : [['-', '-', '-', '-', 'Sin movimientos registrados', '-', '-', '$0.00', '-']],
+    theme: 'striped',
+    headStyles: { fillColor: [15, 118, 110], fontSize: 8, halign: 'center' },
+    styles: { fontSize: 7.5, cellPadding: 2 },
+    columnStyles: {
+      0: { cellWidth: 24 },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+      3: { cellWidth: 26 },
+      4: { cellWidth: 40 },
+      5: { cellWidth: 24 },
+      6: { cellWidth: 80 },
+      7: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      8: { cellWidth: 25 },
+    },
+    margin: { left: 10, right: 10 },
+  });
+
+  // Footer
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Página ${i} de ${pageCount} - FarmaControl POS Kardex y Auditoría de Movimientos`, 14, 200);
+    doc.text(`Generado: ${new Date().toLocaleString('es-MX')}`, 220, 200);
+  }
+
+  doc.save(`Reporte_Movimientos_Kardex_${new Date().toISOString().split('T')[0]}.pdf`);
+}
+

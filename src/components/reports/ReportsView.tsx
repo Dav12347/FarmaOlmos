@@ -35,6 +35,10 @@ import {
   CalendarDays,
   CalendarRange,
   ArrowUpRight,
+  ArrowDownLeft,
+  ArrowLeftRight,
+  Eye,
+  X,
   Wallet,
   Sparkles,
   RotateCcw,
@@ -46,7 +50,9 @@ import {
   exportMonthlyReportToPDF,
   exportDailyReportToExcel,
   exportDailyReportToPDF,
-  exportWeeklyReportToExcel
+  exportWeeklyReportToExcel,
+  exportSingleMovementPDF,
+  exportMovementsListToPDF
 } from '../../utils/exportUtils';
 
 interface ReportsViewProps {
@@ -61,7 +67,7 @@ interface ReportsViewProps {
   onOpenCashCut?: () => void;
 }
 
-type PeriodTab = 'daily' | 'weekly' | 'monthly' | 'custom';
+type PeriodTab = 'daily' | 'weekly' | 'monthly' | 'movements' | 'custom';
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -115,8 +121,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return new Date().toISOString().split('T')[0];
   });
 
-  // Search filter inside sales tables
+  // --- STATE FOR MOVEMENTS / KARDEX VIEW ---
+  const [movFilterType, setMovFilterType] = useState<'all' | 'entry' | 'exit'>('all');
+  const [movSearchQuery, setMovSearchQuery] = useState('');
+  const [selectedMovDetail, setSelectedMovDetail] = useState<InventoryMovement | null>(null);
+
+  // Search and status filter inside sales tables
   const [searchQuery, setSearchQuery] = useState('');
+  const [salesFilterStatus, setSalesFilterStatus] = useState<'all' | 'active' | 'cancelled'>('all');
+
+  // =========================================================================
+  // FINANCIAL CALCULATION HELPERS (ACCURATE NET TOTALS EXCLUDING CANCELLATIONS)
+  // =========================================================================
+  const getSaleNetRevenue = (s: Sale): number => {
+    if (s.status === 'cancelled') return 0;
+    if (s.status === 'refunded') return Math.max(0, s.total - (s.refundedAmount || 0));
+    return s.total;
+  };
+
+  const getSaleNetCost = (s: Sale): number => {
+    if (s.status === 'cancelled') return 0;
+    let totalCost = s.items.reduce((sum, it) => sum + (it.costPrice * it.quantity), 0);
+    if (s.status === 'refunded' && s.refundedItems) {
+      s.refundedItems.forEach(ri => {
+        const orig = s.items.find(si => si.productId === ri.productId);
+        if (orig) {
+          totalCost -= (orig.costPrice * ri.quantity);
+        }
+      });
+    }
+    return Math.max(0, totalCost);
+  };
+
+  const getSaleNetUnits = (s: Sale): number => {
+    if (s.status === 'cancelled') return 0;
+    let units = s.items.reduce((sum, it) => sum + it.quantity, 0);
+    if (s.status === 'refunded' && s.refundedItems) {
+      const refundedQty = s.refundedItems.reduce((sum, ri) => sum + ri.quantity, 0);
+      units = Math.max(0, units - refundedQty);
+    }
+    return units;
+  };
 
   // =========================================================================
   // 1. DATA COMPUTATION FOR DAILY SALES
@@ -156,25 +201,28 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [movements, selectedDateStr]);
 
-  // Daily Metrics
-  const dailyTotalSales = useMemo(() => dailySales.reduce((sum, s) => sum + s.total, 0), [dailySales]);
-  const dailyTotalCost = useMemo(() => {
-    return dailySales.reduce((sum, s) => {
-      return sum + s.items.reduce((isum, it) => isum + (it.costPrice * it.quantity), 0);
-    }, 0);
-  }, [dailySales]);
+  // Daily Metrics (Net of cancellations)
+  const dailyTotalSales = useMemo(() => dailySales.reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [dailySales]);
+  const dailyTotalCost = useMemo(() => dailySales.reduce((sum, s) => sum + getSaleNetCost(s), 0), [dailySales]);
   const dailyGrossProfit = dailyTotalSales - dailyTotalCost;
   const dailyMargin = dailyTotalSales > 0 ? ((dailyGrossProfit / dailyTotalSales) * 100).toFixed(1) : '0';
-  const dailyAverageTicket = dailySales.length > 0 ? (dailyTotalSales / dailySales.length) : 0;
+  const dailyActiveSalesCount = useMemo(() => dailySales.filter(s => s.status !== 'cancelled').length, [dailySales]);
+  const dailyCancelledSalesCount = useMemo(() => dailySales.filter(s => s.status === 'cancelled' || s.status === 'refunded').length, [dailySales]);
+  const dailyCancelledAmount = useMemo(() => dailySales.reduce((sum, s) => {
+    if (s.status === 'cancelled') return sum + s.total;
+    if (s.status === 'refunded') return sum + (s.refundedAmount || 0);
+    return sum;
+  }, 0), [dailySales]);
+  const dailyAverageTicket = dailyActiveSalesCount > 0 ? (dailyTotalSales / dailyActiveSalesCount) : 0;
   const dailyTotalUnitsSold = useMemo(() => {
-    return dailySales.reduce((sum, s) => sum + s.items.reduce((isum, it) => isum + it.quantity, 0), 0);
+    return dailySales.reduce((sum, s) => sum + getSaleNetUnits(s), 0);
   }, [dailySales]);
 
-  // Daily Payment Methods (Corte de Caja)
-  const dailyCashSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0), [dailySales]);
-  const dailyCardSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'card').reduce((sum, s) => sum + s.total, 0), [dailySales]);
-  const dailyTransferSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.total, 0), [dailySales]);
-  const dailyCreditSales = useMemo(() => dailySales.filter(s => s.isCredit).reduce((sum, s) => sum + s.total, 0), [dailySales]);
+  // Daily Payment Methods (Corte de Caja - Netos)
+  const dailyCashSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [dailySales]);
+  const dailyCardSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'card').reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [dailySales]);
+  const dailyTransferSales = useMemo(() => dailySales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [dailySales]);
+  const dailyCreditSales = useMemo(() => dailySales.filter(s => s.isCredit).reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [dailySales]);
   const dailyTotalCashInDrawer = dailyCashSales;
 
   // Hourly Breakdown for Daily Chart
@@ -185,11 +233,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
 
     dailySales.forEach(s => {
-      const h = new Date(s.date).getHours();
-      const current = hoursMap.get(h) || { amount: 0, count: 0 };
-      current.amount += s.total;
-      current.count += 1;
-      hoursMap.set(h, current);
+      const net = getSaleNetRevenue(s);
+      if (net > 0 || s.status !== 'cancelled') {
+        const h = new Date(s.date).getHours();
+        const current = hoursMap.get(h) || { amount: 0, count: 0 };
+        current.amount += net;
+        if (s.status !== 'cancelled') current.count += 1;
+        hoursMap.set(h, current);
+      }
     });
 
     return Array.from(hoursMap.entries()).map(([hour, data]) => ({
@@ -204,15 +255,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return max > 0 ? max : 100;
   }, [dailyHourlyData]);
 
-  // Top products today
+  // Top products today (only valid sales)
   const dailyTopProducts = useMemo(() => {
     const map = new Map<string, { name: string; quantity: number; revenue: number }>();
-    dailySales.forEach(s => {
+    dailySales.filter(s => s.status !== 'cancelled').forEach(s => {
       s.items.forEach(it => {
-        const existing = map.get(it.productId) || { name: it.productName, quantity: 0, revenue: 0 };
-        existing.quantity += it.quantity;
-        existing.revenue += it.subtotal;
-        map.set(it.productId, existing);
+        let qty = it.quantity;
+        let rev = it.subtotal;
+        if (s.status === 'refunded' && s.refundedItems) {
+          const refundedItem = s.refundedItems.find(ri => ri.productId === it.productId);
+          if (refundedItem) {
+            qty = Math.max(0, qty - refundedItem.quantity);
+            rev = Math.max(0, rev - (refundedItem.quantity * it.unitPrice));
+          }
+        }
+        if (qty > 0) {
+          const existing = map.get(it.productId) || { name: it.productName, quantity: 0, revenue: 0 };
+          existing.quantity += qty;
+          existing.revenue += rev;
+          map.set(it.productId, existing);
+        }
       });
     });
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
@@ -246,12 +308,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [payments, weekRange]);
 
-  const weeklyTotalSales = useMemo(() => weeklySales.reduce((sum, s) => sum + s.total, 0), [weeklySales]);
-  const weeklyTotalCost = useMemo(() => {
-    return weeklySales.reduce((sum, s) => {
-      return sum + s.items.reduce((isum, it) => isum + (it.costPrice * it.quantity), 0);
-    }, 0);
-  }, [weeklySales]);
+  const weeklyTotalSales = useMemo(() => weeklySales.reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [weeklySales]);
+  const weeklyTotalCost = useMemo(() => weeklySales.reduce((sum, s) => sum + getSaleNetCost(s), 0), [weeklySales]);
   const weeklyGrossProfit = weeklyTotalSales - weeklyTotalCost;
   const weeklyMargin = weeklyTotalSales > 0 ? ((weeklyGrossProfit / weeklyTotalSales) * 100).toFixed(1) : '0';
   const weeklyDailyAverage = weeklyTotalSales / 7;
@@ -274,16 +332,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         return sDate.getFullYear() === y && (sDate.getMonth() + 1) === (d.getMonth() + 1) && sDate.getDate() === d.getDate();
       });
 
-      const dayAmount = daySales.reduce((sum, s) => sum + s.total, 0);
-      const dayCash = daySales.filter(s => !s.isCredit).reduce((sum, s) => sum + s.total, 0);
-      const dayCredit = daySales.filter(s => s.isCredit).reduce((sum, s) => sum + s.total, 0);
+      const dayAmount = daySales.reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
+      const dayCash = daySales.filter(s => !s.isCredit).reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
+      const dayCredit = daySales.filter(s => s.isCredit).reduce((sum, s) => sum + getSaleNetRevenue(s), 0);
+      const activeCount = daySales.filter(s => s.status !== 'cancelled').length;
 
       days.push({
         date: d,
         dayName: dayNames[i],
         dateStr: `${d.getDate()} de ${MONTH_NAMES[d.getMonth()].slice(0, 3)}`,
         amount: dayAmount,
-        count: daySales.length,
+        count: activeCount,
         cash: dayCash,
         credit: dayCredit,
       });
@@ -304,12 +363,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   // Weekly Top Products
   const weeklyTopProducts = useMemo(() => {
     const map = new Map<string, { name: string; quantity: number; revenue: number }>();
-    weeklySales.forEach(s => {
+    weeklySales.filter(s => s.status !== 'cancelled').forEach(s => {
       s.items.forEach(it => {
-        const existing = map.get(it.productId) || { name: it.productName, quantity: 0, revenue: 0 };
-        existing.quantity += it.quantity;
-        existing.revenue += it.subtotal;
-        map.set(it.productId, existing);
+        let qty = it.quantity;
+        let rev = it.subtotal;
+        if (s.status === 'refunded' && s.refundedItems) {
+          const refundedItem = s.refundedItems.find(ri => ri.productId === it.productId);
+          if (refundedItem) {
+            qty = Math.max(0, qty - refundedItem.quantity);
+            rev = Math.max(0, rev - (refundedItem.quantity * it.unitPrice));
+          }
+        }
+        if (qty > 0) {
+          const existing = map.get(it.productId) || { name: it.productName, quantity: 0, revenue: 0 };
+          existing.quantity += qty;
+          existing.revenue += rev;
+          map.set(it.productId, existing);
+        }
       });
     });
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 8);
@@ -339,15 +409,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [payments, selectedMonth, selectedYear]);
 
-  const monthlyTotalSales = useMemo(() => monthlySales.reduce((sum, s) => sum + s.total, 0), [monthlySales]);
-  const monthlyTotalCost = useMemo(() => {
-    return monthlySales.reduce((sum, s) => {
-      return sum + s.items.reduce((isum, it) => isum + (it.costPrice * it.quantity), 0);
-    }, 0);
-  }, [monthlySales]);
+  const monthlyTotalSales = useMemo(() => monthlySales.reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [monthlySales]);
+  const monthlyTotalCost = useMemo(() => monthlySales.reduce((sum, s) => sum + getSaleNetCost(s), 0), [monthlySales]);
   const monthlyGrossProfit = monthlyTotalSales - monthlyTotalCost;
   const monthlyMargin = monthlyTotalSales > 0 ? ((monthlyGrossProfit / monthlyTotalSales) * 100).toFixed(1) : '0';
-  const monthlyCreditSales = useMemo(() => monthlySales.filter(s => s.isCredit).reduce((sum, s) => sum + s.total, 0), [monthlySales]);
+  const monthlyCreditSales = useMemo(() => monthlySales.filter(s => s.isCredit).reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [monthlySales]);
   const monthlyCashSales = monthlyTotalSales - monthlyCreditSales;
   const monthlyCollectedDebt = useMemo(() => monthlyPayments.reduce((sum, p) => sum + p.amount, 0), [monthlyPayments]);
   const monthlyEntriesAmount = useMemo(() => monthlyMovements.filter(m => m.type === 'entry').reduce((sum, m) => sum + m.totalValue, 0), [monthlyMovements]);
@@ -366,22 +432,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     ];
 
     monthlySales.forEach(s => {
+      const net = getSaleNetRevenue(s);
       const day = new Date(s.date).getDate();
-      if (day <= 7) {
-        weeks[0].amount += s.total;
-        weeks[0].count += 1;
-      } else if (day <= 14) {
-        weeks[1].amount += s.total;
-        weeks[1].count += 1;
-      } else if (day <= 21) {
-        weeks[2].amount += s.total;
-        weeks[2].count += 1;
-      } else if (day <= 28) {
-        weeks[3].amount += s.total;
-        weeks[3].count += 1;
-      } else {
-        weeks[4].amount += s.total;
-        weeks[4].count += 1;
+      const weekIdx = day <= 7 ? 0 : day <= 14 ? 1 : day <= 21 ? 2 : day <= 28 ? 3 : 4;
+      weeks[weekIdx].amount += net;
+      if (s.status !== 'cancelled') {
+        weeks[weekIdx].count += 1;
       }
     });
 
@@ -396,17 +452,28 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   // Monthly top products
   const monthlyTopProducts = useMemo(() => {
     const map = new Map<string, { name: string; quantity: number; revenue: number; presentation: string }>();
-    monthlySales.forEach(s => {
+    monthlySales.filter(s => s.status !== 'cancelled').forEach(s => {
       s.items.forEach(it => {
-        const existing = map.get(it.productId) || {
-          name: it.productName,
-          quantity: 0,
-          revenue: 0,
-          presentation: it.presentation,
-        };
-        existing.quantity += it.quantity;
-        existing.revenue += it.subtotal;
-        map.set(it.productId, existing);
+        let qty = it.quantity;
+        let rev = it.subtotal;
+        if (s.status === 'refunded' && s.refundedItems) {
+          const refundedItem = s.refundedItems.find(ri => ri.productId === it.productId);
+          if (refundedItem) {
+            qty = Math.max(0, qty - refundedItem.quantity);
+            rev = Math.max(0, rev - (refundedItem.quantity * it.unitPrice));
+          }
+        }
+        if (qty > 0) {
+          const existing = map.get(it.productId) || {
+            name: it.productName,
+            quantity: 0,
+            revenue: 0,
+            presentation: it.presentation,
+          };
+          existing.quantity += qty;
+          existing.revenue += rev;
+          map.set(it.productId, existing);
+        }
       });
     });
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
@@ -417,11 +484,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   // Monthly sales by category
   const salesByCategory = useMemo(() => {
     const map = new Map<string, number>();
-    monthlySales.forEach(s => {
+    monthlySales.filter(s => s.status !== 'cancelled').forEach(s => {
       s.items.forEach(it => {
-        const prod = products.find(p => p.id === it.productId);
-        const cat = prod?.category || 'General';
-        map.set(cat, (map.get(cat) || 0) + it.subtotal);
+        let rev = it.subtotal;
+        if (s.status === 'refunded' && s.refundedItems) {
+          const refundedItem = s.refundedItems.find(ri => ri.productId === it.productId);
+          if (refundedItem) {
+            rev = Math.max(0, rev - (refundedItem.quantity * it.unitPrice));
+          }
+        }
+        if (rev > 0) {
+          const prod = products.find(p => p.id === it.productId);
+          const cat = prod?.category || 'General';
+          map.set(cat, (map.get(cat) || 0) + rev);
+        }
       });
     });
     return Array.from(map.entries())
@@ -441,12 +517,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [sales, customStartDate, customEndDate]);
 
-  const customTotalSales = useMemo(() => customSales.reduce((sum, s) => sum + s.total, 0), [customSales]);
-  const customTotalCost = useMemo(() => {
-    return customSales.reduce((sum, s) => {
-      return sum + s.items.reduce((isum, it) => isum + (it.costPrice * it.quantity), 0);
-    }, 0);
-  }, [customSales]);
+  const customTotalSales = useMemo(() => customSales.reduce((sum, s) => sum + getSaleNetRevenue(s), 0), [customSales]);
+  const customTotalCost = useMemo(() => customSales.reduce((sum, s) => sum + getSaleNetCost(s), 0), [customSales]);
   const customGrossProfit = customTotalSales - customTotalCost;
 
   // =========================================================================
@@ -536,6 +608,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     else if (activeTab === 'monthly') list = monthlySales;
     else if (activeTab === 'custom') list = customSales;
 
+    if (salesFilterStatus === 'active') {
+      list = list.filter(s => s.status !== 'cancelled');
+    } else if (salesFilterStatus === 'cancelled') {
+      list = list.filter(s => s.status === 'cancelled' || s.status === 'refunded');
+    }
+
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase();
     return list.filter(s => 
@@ -544,7 +622,51 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       s.items.some(i => i.productName.toLowerCase().includes(q)) ||
       s.paymentMethod.toLowerCase().includes(q)
     );
-  }, [activeTab, dailySales, weeklySales, monthlySales, customSales, searchQuery]);
+  }, [activeTab, dailySales, weeklySales, monthlySales, customSales, salesFilterStatus, searchQuery]);
+
+  // =========================================================================
+  // 5. MOVEMENTS (KARDEX) COMPUTATION & HANDLERS
+  // =========================================================================
+  const filteredMovements = useMemo(() => {
+    let list = movements;
+    if (movFilterType === 'entry') {
+      list = list.filter(m => m.type === 'entry');
+    } else if (movFilterType === 'exit') {
+      list = list.filter(m => m.type === 'exit');
+    }
+
+    if (!movSearchQuery.trim()) return list;
+    const q = movSearchQuery.toLowerCase();
+    return list.filter(m =>
+      m.folio.toLowerCase().includes(q) ||
+      m.reason.toLowerCase().includes(q) ||
+      (m.supplierOrDestination && m.supplierOrDestination.toLowerCase().includes(q)) ||
+      (m.referenceInvoice && m.referenceInvoice.toLowerCase().includes(q)) ||
+      (m.registeredBy && m.registeredBy.toLowerCase().includes(q)) ||
+      m.items.some(i => i.productName.toLowerCase().includes(q))
+    );
+  }, [movements, movFilterType, movSearchQuery]);
+
+  const totalMovEntriesValue = useMemo(() => {
+    return movements.filter(m => m.type === 'entry').reduce((sum, m) => sum + m.totalValue, 0);
+  }, [movements]);
+
+  const totalMovExitsValue = useMemo(() => {
+    return movements.filter(m => m.type === 'exit').reduce((sum, m) => sum + m.totalValue, 0);
+  }, [movements]);
+
+  const handleExportMovementsPDF = () => {
+    const filterTitle = movFilterType === 'entry' 
+      ? 'Reporte de Entradas de Inventario (Compras / Ajustes)' 
+      : movFilterType === 'exit' 
+      ? 'Reporte de Salidas y Mermas Sanitarias' 
+      : 'Reporte General de Movimientos y Kardex';
+    exportMovementsListToPDF(filteredMovements, settings, filterTitle);
+  };
+
+  const handleExportSingleMovPDF = (movement: InventoryMovement) => {
+    exportSingleMovementPDF(movement, settings);
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
@@ -561,13 +683,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 Control de Ventas y Reportes Financieros
               </h1>
               <p className="text-xs text-slate-600 font-medium">
-                Auditoría en tiempo real de ventas diarias, semanales y mensuales con corte de caja y márgenes
+                Auditoría en tiempo real de ventas diarias, semanales, mensuales y reporte de movimientos en PDF
               </p>
             </div>
           </div>
         </div>
 
-        {/* 4 Main View Tabs */}
+        {/* 5 Main View Tabs */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 self-start lg:self-auto overflow-x-auto max-w-full">
           <button
             onClick={() => setActiveTab('daily')}
@@ -615,6 +737,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           >
             <CalendarRange className="w-3.5 h-3.5 text-teal-600" />
             <span>Rango Libre</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('movements')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'movements'
+                ? 'bg-teal-700 text-white shadow-xs border border-teal-800'
+                : 'text-teal-700 hover:text-teal-900 font-black'
+            }`}
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+            <span>Entradas / Salidas (PDF)</span>
           </button>
         </div>
       </div>
@@ -1511,148 +1645,595 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* 6. COMMON SALES LOG TABLE (WITH SEARCH & TICKET RE-PRINT)             */}
+      {/* 5. TAB: MOVIMIENTOS DE INVENTARIO / KARDEX / ENTRADAS Y SALIDAS (PDF) */}
       {/* ===================================================================== */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        
-        <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-teal-600" />
+      {activeTab === 'movements' && (
+        <div className="space-y-5 animate-in fade-in duration-150">
+          
+          {/* Header Action & Summary Strip */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Registro de Ventas ({activeDisplaySales.length} {activeDisplaySales.length === 1 ? 'venta' : 'ventas'})
-              </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                {activeTab === 'daily' && `Ventas del ${selectedDayDate.toLocaleDateString('es-MX')}`}
-                {activeTab === 'weekly' && `Ventas del ${weekRange.start.toLocaleDateString('es-MX')} al ${weekRange.end.toLocaleDateString('es-MX')}`}
-                {activeTab === 'monthly' && `Ventas de ${MONTH_NAMES[selectedMonth]} ${selectedYear}`}
-                {activeTab === 'custom' && `Ventas del ${customStartDate} al ${customEndDate}`}
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <ArrowLeftRight className="w-5 h-5 text-teal-600" />
+                Historial de Movimientos de Inventario (Kardex)
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Revise, filtre y descargue en PDF las actas de entradas, salidas, mermas sanitarias y compras de medicamentos
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportMovementsPDF}
+                className="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Descargar Reporte PDF de Movimientos</span>
+              </button>
             </div>
           </div>
 
-          {/* Quick Search */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Buscar por folio, cliente, producto..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
-          </div>
-        </div>
+          {/* 3 Metric Cards for Movements */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase text-emerald-800 flex items-center gap-1.5">
+                  <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
+                  Entradas de Stock (+)
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                  {movements.filter(m => m.type === 'entry').length} reg.
+                </span>
+              </div>
+              <div className="text-2xl font-black text-emerald-700 font-mono">
+                {formatCurrency(totalMovEntriesValue)}
+              </div>
+              <div className="text-[11px] text-emerald-900/70 font-medium">
+                Compras a proveedores y ajustes positivos
+              </div>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-900">
-            <thead className="bg-slate-50 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-4">Folio / Fecha</th>
-                <th className="py-3 px-4">Cliente</th>
-                <th className="py-3 px-4">Medicamentos Vendidos</th>
-                <th className="py-3 px-4">Método</th>
-                <th className="py-3 px-4">Estado</th>
-                <th className="py-3 px-4">Subtotal</th>
-                <th className="py-3 px-4">Total</th>
-                <th className="py-3 px-4 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {activeDisplaySales.map(s => {
-                const isCancelled = s.status === 'cancelled' || s.status === 'refunded';
-                return (
-                  <tr key={s.id} className={`transition-colors ${isCancelled ? 'bg-rose-50/60 opacity-80' : 'hover:bg-slate-50'}`}>
-                    <td className="py-3 px-4">
-                      <span className={`font-bold font-mono ${isCancelled ? 'line-through text-rose-800' : 'text-slate-900'}`}>{s.folio}</span>
-                      <div className="text-[10px] text-slate-500 font-medium">{formatDateTime(s.date)}</div>
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-900">
-                      {s.customerName || 'Público General'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="space-y-0.5 max-w-xs sm:max-w-sm">
-                        {s.items.map((it, idx) => (
-                          <div key={idx} className={`text-[11px] ${isCancelled ? 'line-through text-slate-500' : 'text-slate-800'}`}>
-                            <strong className="text-slate-900">{it.quantity}x</strong> {it.productName} ({formatCurrency(it.subtotal)})
+            <div className="bg-white p-4 rounded-xl border border-rose-200 bg-rose-50/20 shadow-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase text-rose-800 flex items-center gap-1.5">
+                  <ArrowUpRight className="w-4 h-4 text-rose-600" />
+                  Salidas / Mermas (-)
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full">
+                  {movements.filter(m => m.type === 'exit').length} reg.
+                </span>
+              </div>
+              <div className="text-2xl font-black text-rose-700 font-mono">
+                {formatCurrency(totalMovExitsValue)}
+              </div>
+              <div className="text-[11px] text-rose-900/70 font-medium">
+                Mermas, caducidades y bajas sanitarias
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase text-slate-600 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-teal-600" />
+                  Total de Registros
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full">
+                  {filteredMovements.length} visibles
+                </span>
+              </div>
+              <div className="text-2xl font-black text-slate-900 font-mono">
+                {movements.length}
+              </div>
+              <div className="text-[11px] text-slate-500 font-medium">
+                Movimientos guardados en la base de datos
+              </div>
+            </div>
+          </div>
+
+          {/* Movements Filter & Search Toolbar */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setMovFilterType('all')}
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  movFilterType === 'all'
+                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Todos ({movements.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMovFilterType('entry')}
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                  movFilterType === 'entry'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-emerald-700 hover:text-emerald-900'
+                }`}
+              >
+                <ArrowDownLeft className="w-3.5 h-3.5" />
+                Solo Entradas ({movements.filter(m => m.type === 'entry').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMovFilterType('exit')}
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                  movFilterType === 'exit'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-rose-700 hover:text-rose-900'
+                }`}
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                Solo Salidas / Mermas ({movements.filter(m => m.type === 'exit').length})
+              </button>
+            </div>
+
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar por folio, producto, proveedor..."
+                value={movSearchQuery}
+                onChange={e => setMovSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+
+          {/* Movements Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-900">
+                <thead className="bg-slate-50 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4">Folio / Fecha</th>
+                    <th className="py-3 px-4">Tipo</th>
+                    <th className="py-3 px-4">Motivo</th>
+                    <th className="py-3 px-4">Proveedor / Destino</th>
+                    <th className="py-3 px-4">Factura / Ref</th>
+                    <th className="py-3 px-4">Medicamentos</th>
+                    <th className="py-3 px-4 text-right">Valor Total</th>
+                    <th className="py-3 px-4">Responsable</th>
+                    <th className="py-3 px-4 text-right">Acciones PDF</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredMovements.map(m => {
+                    const isEntry = m.type === 'entry';
+                    const totalQty = m.items.reduce((s, it) => s + it.quantity, 0);
+
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4">
+                          <span className="font-bold font-mono text-slate-900">{m.folio}</span>
+                          <div className="text-[10px] text-slate-500 font-medium">{formatDateTime(m.date)}</div>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              isEntry
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : 'bg-rose-100 text-rose-800 border border-rose-300'
+                            }`}
+                          >
+                            {isEntry ? (
+                              <>
+                                <ArrowDownLeft className="w-3 h-3 text-emerald-700" />
+                                ENTRADA
+                              </>
+                            ) : (
+                              <>
+                                <ArrowUpRight className="w-3 h-3 text-rose-700" />
+                                SALIDA / MERMA
+                              </>
+                            )}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-4 font-semibold text-slate-800 capitalize">
+                          {m.reason.replace('_', ' ')}
+                        </td>
+
+                        <td className="py-3 px-4 text-slate-700 font-medium">
+                          {m.supplierOrDestination || '-'}
+                        </td>
+
+                        <td className="py-3 px-4 font-mono text-slate-600">
+                          {m.referenceInvoice || '-'}
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <div className="space-y-0.5 max-w-xs">
+                            <span className="font-bold text-slate-900">{totalQty} piezas:</span>
+                            {m.items.slice(0, 2).map((it, idx) => (
+                              <div key={idx} className="text-[11px] text-slate-600 truncate">
+                                • {it.quantity}x {it.productName}
+                              </div>
+                            ))}
+                            {m.items.length > 2 && (
+                              <div className="text-[10px] text-teal-700 font-semibold">
+                                +{m.items.length - 2} productos más...
+                              </div>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          s.isCredit
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                            : s.paymentMethod === 'cash'
-                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                            : s.paymentMethod === 'card'
-                            ? 'bg-blue-100 text-blue-900 border border-blue-300'
-                            : 'bg-purple-100 text-purple-900 border border-purple-300'
-                        }`}
-                      >
-                        {s.isCredit ? 'CRÉDITO' : s.paymentMethod.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      {isCancelled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300" title={`Motivo: ${s.cancelledReason || 'Cancelado'}`}>
-                          <AlertTriangle className="w-3 h-3" />
-                          CANCELADA
+                        </td>
+
+                        <td className="py-3 px-4 text-right font-black font-mono text-sm text-slate-900">
+                          {formatCurrency(m.totalValue)}
+                        </td>
+
+                        <td className="py-3 px-4 text-slate-600 text-[11px]">
+                          {m.registeredBy || 'Farmacéutico'}
+                        </td>
+
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleExportSingleMovPDF(m)}
+                              className="px-2.5 py-1.5 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                              title="Descargar Acta / Comprobante PDF"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Acta PDF</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMovDetail(m)}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer border border-slate-300"
+                              title="Ver Detalle Completo"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Detalle</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {filteredMovements.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center text-slate-500 text-xs font-medium">
+                        No hay movimientos registrados que coincidan con el filtro actual.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 6. COMMON SALES LOG TABLE (SHOWN ON SALES TABS ONLY)                  */}
+      {/* ===================================================================== */}
+      {activeTab !== 'movements' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          
+          <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-teal-600" />
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Registro de Ventas ({activeDisplaySales.length} {activeDisplaySales.length === 1 ? 'venta' : 'ventas'})
+                </h3>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {activeTab === 'daily' && `Ventas del ${selectedDayDate.toLocaleDateString('es-MX')}`}
+                  {activeTab === 'weekly' && `Ventas del ${weekRange.start.toLocaleDateString('es-MX')} al ${weekRange.end.toLocaleDateString('es-MX')}`}
+                  {activeTab === 'monthly' && `Ventas de ${MONTH_NAMES[selectedMonth]} ${selectedYear}`}
+                  {activeTab === 'custom' && `Ventas del ${customStartDate} al ${customEndDate}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Filter controls & Search */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Status Segmented Buttons */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSalesFilterStatus('all')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    salesFilterStatus === 'all'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSalesFilterStatus('active')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    salesFilterStatus === 'active'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-emerald-800 hover:text-emerald-950'
+                  }`}
+                >
+                  Vigentes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSalesFilterStatus('cancelled')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    salesFilterStatus === 'cancelled'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-rose-700 hover:text-rose-900'
+                  }`}
+                >
+                  Canceladas
+                </button>
+              </div>
+
+              {/* Quick Search */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por folio, cliente, producto..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-900">
+              <thead className="bg-slate-50 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Folio / Fecha</th>
+                  <th className="py-3 px-4">Cliente</th>
+                  <th className="py-3 px-4">Medicamentos Vendidos</th>
+                  <th className="py-3 px-4">Método</th>
+                  <th className="py-3 px-4">Estado</th>
+                  <th className="py-3 px-4">Subtotal</th>
+                  <th className="py-3 px-4">Total</th>
+                  <th className="py-3 px-4 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {activeDisplaySales.map(s => {
+                  const isCancelled = s.status === 'cancelled' || s.status === 'refunded';
+                  return (
+                    <tr key={s.id} className={`transition-colors ${isCancelled ? 'bg-rose-50/60 opacity-80' : 'hover:bg-slate-50'}`}>
+                      <td className="py-3 px-4">
+                        <span className={`font-bold font-mono ${isCancelled ? 'line-through text-rose-800' : 'text-slate-900'}`}>{s.folio}</span>
+                        <div className="text-[10px] text-slate-500 font-medium">{formatDateTime(s.date)}</div>
+                      </td>
+                      <td className="py-3 px-4 font-medium text-slate-900">
+                        {s.customerName || 'Público General'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="space-y-0.5 max-w-xs sm:max-w-sm">
+                          {s.items.map((it, idx) => (
+                            <div key={idx} className={`text-[11px] ${isCancelled ? 'line-through text-slate-500' : 'text-slate-800'}`}>
+                              <strong className="text-slate-900">{it.quantity}x</strong> {it.productName} ({formatCurrency(it.subtotal)})
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            s.isCredit
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : s.paymentMethod === 'cash'
+                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                              : s.paymentMethod === 'card'
+                              ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                              : 'bg-purple-100 text-purple-900 border border-purple-300'
+                          }`}
+                        >
+                          {s.isCredit ? 'CRÉDITO' : s.paymentMethod.toUpperCase()}
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                          <CheckCircle2 className="w-3 h-3" />
-                          COMPLETADA
-                        </span>
-                      )}
-                    </td>
-                    <td className={`py-3 px-4 font-mono ${isCancelled ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                      {formatCurrency(s.subtotal)}
-                    </td>
-                    <td className={`py-3 px-4 font-black font-mono text-sm ${isCancelled ? 'line-through text-rose-700' : 'text-slate-900'}`}>
-                      {formatCurrency(s.total)}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {onOpenSaleTicket && (
-                          <button
-                            onClick={() => onOpenSaleTicket(s)}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer border border-slate-300"
-                            title="Ver / Imprimir Ticket"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Ticket</span>
-                          </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        {isCancelled ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300" title={`Motivo: ${s.cancelledReason || 'Cancelado'}`}>
+                            <AlertTriangle className="w-3 h-3" />
+                            CANCELADA
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            <CheckCircle2 className="w-3 h-3" />
+                            COMPLETADA
+                          </span>
                         )}
-                        {onCancelSale && !isCancelled && (
-                          <button
-                            onClick={() => onCancelSale(s)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Cancelar Venta / Devolución"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Cancelar</span>
-                          </button>
-                        )}
-                      </div>
+                      </td>
+                      <td className={`py-3 px-4 font-mono ${isCancelled ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                        {formatCurrency(s.subtotal)}
+                      </td>
+                      <td className={`py-3 px-4 font-black font-mono text-sm ${isCancelled ? 'line-through text-rose-700' : 'text-slate-900'}`}>
+                        {formatCurrency(s.total)}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {onOpenSaleTicket && (
+                            <button
+                              onClick={() => onOpenSaleTicket(s)}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer border border-slate-300"
+                              title="Ver / Imprimir Ticket"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Ticket</span>
+                            </button>
+                          )}
+                          {onCancelSale && !isCancelled && (
+                            <button
+                              onClick={() => onCancelSale(s)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Cancelar Venta / Devolución"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Cancelar</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {activeDisplaySales.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-500 text-xs font-medium">
+                      No se encontraron ventas para este período o criterio de búsqueda.
                     </td>
                   </tr>
-                );
-              })}
+                )}
+              </tbody>
+            </table>
+          </div>
 
-              {activeDisplaySales.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500 text-xs font-medium">
-                    No se encontraron ventas para este período o criterio de búsqueda.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
         </div>
+      )}
 
-      </div>
+      {/* ===================================================================== */}
+      {/* 7. MODAL: DETALLE DE MOVIMIENTO CON DESCARGA DIRECTA DE ACTA PDF      */}
+      {/* ===================================================================== */}
+      {selectedMovDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden text-xs">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-teal-600" />
+                  Acta de Movimiento: <span className="font-mono text-teal-800">{selectedMovDetail.folio}</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 font-medium">{formatDateTime(selectedMovDetail.date)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMovDetail(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Tipo:</span>
+                  <div className={`font-bold text-xs uppercase ${selectedMovDetail.type === 'entry' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {selectedMovDetail.type === 'entry' ? 'Entrada (+)' : 'Salida / Merma (-)'}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Motivo:</span>
+                  <div className="font-bold text-xs capitalize text-slate-800">
+                    {selectedMovDetail.reason.replace('_', ' ')}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Origen / Destino:</span>
+                  <div className="font-semibold text-xs text-slate-800 truncate">
+                    {selectedMovDetail.supplierOrDestination || '-'}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Factura / Ref:</span>
+                  <div className="font-mono font-semibold text-xs text-slate-800">
+                    {selectedMovDetail.referenceInvoice || '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-slate-900 mb-2 flex items-center justify-between">
+                  <span>Medicamentos Incluidos en el Movimiento:</span>
+                  <span className="text-slate-500 font-normal">
+                    {selectedMovDetail.items.reduce((s, it) => s + it.quantity, 0)} unidades totales
+                  </span>
+                </h4>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase">
+                      <tr>
+                        <th className="py-2.5 px-3">Medicamento</th>
+                        <th className="py-2.5 px-3">Lote</th>
+                        <th className="py-2.5 px-3">Caducidad</th>
+                        <th className="py-2.5 px-3 text-center">Cant.</th>
+                        <th className="py-2.5 px-3 text-right">Costo Unit.</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {selectedMovDetail.items.map((it, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-semibold text-slate-900">{it.productName}</td>
+                          <td className="py-2 px-3 font-mono text-slate-600">{it.batchNumber || '-'}</td>
+                          <td className="py-2 px-3 text-slate-600">{it.expirationDate ? formatDate(it.expirationDate) : '-'}</td>
+                          <td className="py-2 px-3 text-center font-bold text-slate-900">{it.quantity}</td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-700">{formatCurrency(it.costPrice)}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                            {formatCurrency(it.subtotal || (it.costPrice * it.quantity))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <div className="bg-slate-100 px-4 py-2.5 rounded-xl flex items-center gap-4 text-xs">
+                    <span className="font-semibold text-slate-600">Importe Total Valuado:</span>
+                    <span className="text-base font-black text-slate-900 font-mono">
+                      {formatCurrency(selectedMovDetail.totalValue)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {selectedMovDetail.notes && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900">
+                  <span className="font-bold">Observaciones / Notas:</span> {selectedMovDetail.notes}
+                </div>
+              )}
+
+              <div className="text-[11px] text-slate-500 flex justify-between items-center pt-2">
+                <span>Registrado por: <strong>{selectedMovDetail.registeredBy || 'Farmacéutico'}</strong></span>
+                <span>FarmaControl POS Control Sanitario</span>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedMovDetail(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition-colors"
+              >
+                Cerrar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleExportSingleMovPDF(selectedMovDetail);
+                }}
+                className="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-colors"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Descargar Acta Oficial en PDF</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
