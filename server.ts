@@ -60,30 +60,46 @@ async function startServer() {
       const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
       const validMimeType = mimeType || 'image/jpeg';
 
-      const promptText = `Eres un asistente farmacéutico y contable experto en sistemas de inventario y punto de venta para farmacias y droguerías.
-Tu tarea es leer y extraer con máxima precisión todos los datos de este ticket, nota de remisión, orden de compra o factura en PDF/imagen de un distribuidor mayorista farmacéutico o comercial (ej. Nadro, Marzam, Fanasa, Saba, Farmacias de Genéricos, Costco, Sam's, etc.).
+      const promptText = `Eres un asistente farmacéutico y contable experto en sistemas de inventario y punto de venta para farmacias y droguerías en México y Latinoamérica.
+Tu tarea es leer y extraer con máxima precisión todos los datos de este documento escaneado (factura, nota de remisión, orden de compra, ticket de distribuidora mayorista farmacéutica como RAXO / Generimax, Nadro, Marzam, Fanasa, Saba, Levic, etc.).
+
+La tabla del documento contiene columnas como:
+- CANT / CANTIDAD (cantidad de unidades/piezas)
+- UNIDAD (Pieza, Caja, Frasco, etc.)
+- DESCRIPCION (Nombre comercial y/o genérico del medicamento, concentración y presentación)
+- CLAVE (Clave de artículo o código interno del proveedor)
+- LABORATORIO (Laboratorio fabricante: ej. Bruluar, Wermar, Novag, Maver, Sons, Amsa, Mavi, Offenbach, Serral, Collins, Biomep, Liferpa, Raam, Loeffler, etc.)
+- LOTE (Número de lote de fabricación)
+- CAD / CADUCIDAD (Fecha de caducidad: SIEMPRE conviértela a formato ISO YYYY-MM-DD, por ejemplo "18/05/2028" -> "2028-05-18")
+- CLAVE SAT (Clave de producto/servicio del SAT mexicano ej: 51101511, 51161800, etc.)
+- IVA (Tasa de IVA, 0 o 16% si aplica)
+- PRECIO UNITARIO (Costo unitario de compra antes o después de impuestos)
+- IMPORTE (Importe total del renglón = Cantidad * Precio Unitario)
 
 Extrae:
-1. supplierName: Nombre de la distribuidora / proveedor / mayorista que emite el ticket o factura.
-2. invoiceNumber: Folio o número de remisión / factura / ticket de compra.
-3. invoiceDate: Fecha de la compra o emisión en formato YYYY-MM-DD si es identificable, o texto.
-4. totalAmount: Monto total pagado o facturado en la compra (número).
-5. items: Lista exhaustiva de TODOS los productos / medicamentos surtidos en el documento. Para cada uno:
-   - name: Nombre comercial y/o genérico claro, con concentración y presentación breve (ej: "Paracetamol 500mg c/20 tabs", "Amoxicilina + Ác. Clavulánico 500/125mg", "Ibuprofeno 400mg", "Electrolit Fresa 625ml", "Coca Cola 600ml", "Algodón Plisado 50g").
-   - barcode: Código de barras si viene impreso (EAN-13, UPC) o déjalo vacío "" si no aparece.
-   - code: Clave de artículo o SKU del proveedor o inventario si aparece.
-   - quantity: Cantidad de piezas, cajas o paquetes recibidos (número positivo).
-   - costPrice: Precio unitario de costo / compra por pieza o caja (número).
-   - suggestedSellingPrice: Precio de venta al público sugerido (si no viene explícito en el ticket, calcula un margen de ganancia estándar del 35% al 45% sobre el costo: costPrice * 1.40).
-   - batchNumber: Número de lote / serie si viene impreso en la factura.
-   - expirationDate: Fecha de caducidad en formato YYYY-MM-DD si viene en la factura.
-   - presentation: Presentación (ej: "Caja con 20 tabletas", "Frasco 120ml", "Botella 600ml", "Pieza").
-   - unitOfMeasure: Unidad de medida ("Caja", "Pieza", "Botella", "Frasco", "Tabletas", "Paquete", "Blíster", etc.).
-   - category: Categoría sugerida ("Analgésicos", "Antibióticos", "Gastrointestinal", "Respiratorio", "Dermatología", "Material de Curación", "Suplementos", "Bebidas y Aguas", "Dulces y Golosinas", "Botanas y Snacks", "Cuidado e Higiene", "Otro").
-   - department: Uno de estos valores exactos: "farmacia", "bebidas", "dulces", "botanas", "higiene", "otros".
-   - prescriptionRequired: true si es antibiótico, psicotrópico o requiere receta médica obligatoria; false si es analgésico OTC, material de curación o libre venta.
+1. supplierName: Nombre del emisor / distribuidor mayorista (ej. "RAXO EMPRESARIAL SA DE CV / Generimax", "Marzam", "Nadro", etc.).
+2. invoiceNumber: Folio o número de nota de remisión / factura (ej. "A 27135").
+3. invoiceDate: Fecha de emisión en formato YYYY-MM-DD.
+4. totalAmount: Monto total del documento (ej. 1146.68).
+5. items: Lista completa de TODOS los medicamentos y productos listados en la tabla:
+   - name: Nombre del medicamento con concentración (ej: "DIMOPEN 500 MG C/12 CAP", "ROSEL T C/15 TAB", "NIPRESOL 100MG C/20 TAB").
+   - code: Clave del producto o SKU (ej. "355", "1829", "280").
+   - barcode: Código de barras si viene impreso o déjalo vacío "" si no aparece.
+   - quantity: Cantidad de piezas/unidades (número).
+   - unitOfMeasure: Unidad de medida (ej. "Pieza", "Caja", "Frasco").
+   - laboratory: Nombre del laboratorio fabricante (ej. "BRULUAR", "WERMAR", "MAVER", "SONS", "AMSA").
+   - batchNumber: Número de lote exacto (ej. "6050714", "251250").
+   - expirationDate: Fecha de caducidad en formato YYYY-MM-DD (ej. "2028-05-18").
+   - satCode: Clave SAT si aparece (ej. "51101511").
+   - costPrice: Precio unitario de costo (ej. 20.43).
+   - suggestedSellingPrice: Precio de venta al público sugerido con margen farmacéutico estándar del 35% al 45% sobre el costo (ej: costPrice * 1.40).
+   - totalImport: Importe total del renglón (ej. 40.86).
+   - presentation: Presentación (ej. "Caja con 12 cápsulas", "Frasco 120ml").
+   - category: Categoría sugerida ("Analgésicos", "Antibióticos", "Gastrointestinal", "Respiratorio", "Dermatología", "Material de Curación", "Suplementos", "Otro").
+   - department: "farmacia", "bebidas", "dulces", "botanas", "higiene", u "otros".
+   - prescriptionRequired: true si es antibiótico o controlado; false si es libre venta / OTC.
 
-${customPrompt ? `Instrucciones adicionales del farmacéutico: ${customPrompt}` : ''}`;
+${customPrompt ? `Instrucciones adicionales del usuario: ${customPrompt}` : ''}`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.7-flash",
@@ -118,12 +134,15 @@ ${customPrompt ? `Instrucciones adicionales del farmacéutico: ${customPrompt}` 
                     barcode: { type: Type.STRING },
                     code: { type: Type.STRING },
                     quantity: { type: Type.NUMBER },
-                    costPrice: { type: Type.NUMBER },
-                    suggestedSellingPrice: { type: Type.NUMBER },
+                    unitOfMeasure: { type: Type.STRING },
+                    laboratory: { type: Type.STRING },
                     batchNumber: { type: Type.STRING },
                     expirationDate: { type: Type.STRING },
+                    satCode: { type: Type.STRING },
+                    costPrice: { type: Type.NUMBER },
+                    suggestedSellingPrice: { type: Type.NUMBER },
+                    totalImport: { type: Type.NUMBER },
                     presentation: { type: Type.STRING },
-                    unitOfMeasure: { type: Type.STRING },
                     category: { type: Type.STRING },
                     department: { type: Type.STRING },
                     prescriptionRequired: { type: Type.BOOLEAN },

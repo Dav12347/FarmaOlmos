@@ -596,14 +596,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <span>+ Entrada</span>
           </button>
 
-          {/* Surtir con Ticket / Factura PDF */}
+          {/* Surtir con Documento Escaneado / Ticket / Factura PDF */}
           <button
             onClick={() => setIsSupplierTicketModalOpen(true)}
-            className="flex-1 sm:flex-initial px-2.5 sm:px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
-            title="Dar de alta productos o existencias subiendo ticket de compra o factura en PDF de tu proveedor"
+            className="flex-1 sm:flex-initial px-3 py-2 bg-gradient-to-r from-teal-800 to-teal-900 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow ring-1 ring-teal-500/30"
+            title="Escanear o subir documento/factura de proveedor (PDF o Foto) para dar de alta automáticamente con Cantidad, Unidad, Descripción, Clave, Laboratorio, Lote, Caducidad, Clave SAT y Precios"
           >
             <FileText className="w-4 h-4 text-teal-300" />
-            <span>📥 Ticket/PDF</span>
+            <span>📄 Escanear Documento</span>
           </button>
 
           {/* Entrada Masiva desde Excel */}

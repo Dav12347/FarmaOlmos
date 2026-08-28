@@ -74,7 +74,7 @@ export async function extractTextFromPdfArrayBuffer(arrayBuffer: ArrayBuffer): P
 }
 
 /**
- * Direct deterministic parser for invoices/tickets without AI
+ * Direct deterministic parser for Mexican pharmaceutical invoices & tickets
  */
 export function parseInvoiceLinesDirectly(
   lines: string[], 
@@ -87,24 +87,37 @@ export function parseInvoiceLinesDirectly(
   const rawText = lines.join('\n');
   const items: SupplierTicketItem[] = [];
 
-  // 1. Detect Supplier and Header info from top 20 lines
+  const KNOWN_LABS = [
+    'BRULUAR', 'WERMAR', 'NOVAG', 'MAVER', 'SONS', 'AMSA', 'MAVI', 
+    'OFFENBACH', 'SERRAL', 'COLLINS', 'BIOMEP', 'LIFERPAL', 'RAAM', 
+    'LOEFFLER', 'ULTRA', 'MEDLEY', 'KENER', 'GENOMMA', 'PFIZER', 
+    'BAYER', 'SANOFI', 'ALPHARMA', 'CHINOIN', 'SENOSIAIN', 'BUSSIE'
+  ];
+
+  // 1. Detect Supplier and Header info from top 25 lines
   const headerLines = lines.slice(0, 25);
   for (const line of headerLines) {
     const lower = line.toLowerCase();
     
     // Detect Supplier
     if (!supplierName) {
-      if (lower.includes('generimax') || lower.includes('genericos intercambiables al mayoreo') || lower.includes('generamos más para tu farmacia')) {
-        supplierName = 'Generimax (Genéricos Intercambiables al Mayoreo)';
-      } else if (lower.includes('marzam')) supplierName = 'Marzam Distribución Farmacéutica S.A. de C.V.';
-      else if (lower.includes('nadro')) supplierName = 'Nadro S.A.P.I. de C.V.';
-      else if (lower.includes('fanasa') || lower.includes('nacional de drogas')) supplierName = 'Fármacos Nacionales (Fanasa)';
-      else if (lower.includes('saba')) supplierName = 'Distribuidora Saba Farma';
-      else if (lower.includes('levic')) supplierName = 'Laboratorios Levic S.A. de C.V.';
-      else if (lower.includes('costco')) supplierName = 'Costco Wholesale México';
-      else if (lower.includes('sam\'s') || lower.includes('sams')) supplierName = 'Sam\'s Club México';
-      else if (lower.includes('walmart') || lower.includes('bodega aurrera')) supplierName = 'Nueva Walmart de México';
-      else if (lower.includes('droguería') || lower.includes('drogueria') || lower.includes('distribuidora') || lower.includes('farmaceutica') || lower.includes('laboratorios')) {
+      if (lower.includes('raxo') || lower.includes('generimax') || lower.includes('genericos intercambiables') || lower.includes('generamos más')) {
+        supplierName = 'RAXO EMPRESARIAL SA DE CV / Generimax';
+      } else if (lower.includes('marzam')) {
+        supplierName = 'Marzam Distribución Farmacéutica S.A. de C.V.';
+      } else if (lower.includes('nadro')) {
+        supplierName = 'Nadro S.A.P.I. de C.V.';
+      } else if (lower.includes('fanasa') || lower.includes('nacional de drogas')) {
+        supplierName = 'Fármacos Nacionales (Fanasa)';
+      } else if (lower.includes('saba')) {
+        supplierName = 'Distribuidora Saba Farma';
+      } else if (lower.includes('levic')) {
+        supplierName = 'Laboratorios Levic S.A. de C.V.';
+      } else if (lower.includes('costco')) {
+        supplierName = 'Costco Wholesale México';
+      } else if (lower.includes('sam\'s') || lower.includes('sams')) {
+        supplierName = 'Sam\'s Club México';
+      } else if (lower.includes('droguería') || lower.includes('drogueria') || lower.includes('distribuidora') || lower.includes('farmaceutica') || lower.includes('laboratorios')) {
         supplierName = line.trim();
       }
     }
@@ -186,18 +199,19 @@ export function parseInvoiceLinesDirectly(
       continue;
     }
 
-    // Pattern A: Generimax style row
-    // Line 1: "4 5080 10.61 $ 42.44" or "4  5080  10.61  42.44" or "1 5956 108.96 $ 108.96"
-    const generimaxHeaderMatch = line.match(/^(\d{1,4})\s+(\d{3,8})\s+(\d+(?:\.\d{1,2})?)\s*\$?\s*(\d+(?:\.\d{1,2})?)/);
+    // Pattern A: Generimax / Raxo style row with quantities and prices
+    const generimaxHeaderMatch = line.match(/^(\d{1,4})\s+(\d{2,8})\s+(\d+(?:\.\d{1,2})?)\s*\$?\s*(\d+(?:\.\d{1,2})?)/);
     
     if (generimaxHeaderMatch) {
       const quantity = parseInt(generimaxHeaderMatch[1], 10);
       const skuCode = generimaxHeaderMatch[2];
       const costPrice = parseFloat(generimaxHeaderMatch[3]);
+      const lineImport = parseFloat(generimaxHeaderMatch[4]) || (quantity * costPrice);
       
       let name = '';
       let batchNumber = '';
       let expirationDate = '';
+      let laboratory = '';
 
       // Lookahead next 1-3 lines for Description and Lote/Caducidad
       let lookaheadIdx = i + 1;
@@ -207,7 +221,7 @@ export function parseInvoiceLinesDirectly(
 
         // Check if nextLine is a new row or total footer
         if (
-          nextLine.match(/^(\d{1,4})\s+(\d{3,8})\s+(\d+(?:\.\d{1,2})?)/) ||
+          nextLine.match(/^(\d{1,4})\s+(\d{2,8})\s+(\d+(?:\.\d{1,2})?)/) ||
           nextLower.startsWith('importe:') || nextLower.startsWith('subtotal') ||
           nextLower.startsWith('total') || nextLower.startsWith('iva')
         ) {
@@ -225,19 +239,22 @@ export function parseInvoiceLinesDirectly(
             expirationDate = cadMatch[1].trim();
           }
         } else if (!name && nextLine.length > 2) {
-          // This is the description / product name
           name = nextLine;
+          for (const lab of KNOWN_LABS) {
+            if (name.toUpperCase().includes(lab)) {
+              laboratory = lab;
+              break;
+            }
+          }
         }
 
         lookaheadIdx++;
       }
 
-      // If we found a description
       if (!name) {
         name = `Artículo Clave ${skuCode}`;
       }
 
-      // Check match in catalog
       let matchedProd = catalogProducts.find(p => p.code && p.code.toLowerCase() === skuCode.toLowerCase());
       if (!matchedProd) {
         matchedProd = catalogProducts.find(p => p.name.toLowerCase() === name.toLowerCase());
@@ -249,18 +266,17 @@ export function parseInvoiceLinesDirectly(
         sellingPrice = matchedProd.sellingPrice;
       }
 
-      // Infer Category and Department
       let category = 'Medicamentos';
       let department: ProductDepartment = 'farmacia';
       const lowerName = name.toLowerCase();
 
       if (lowerName.includes('omeprazol') || lowerName.includes('ranitidina') || lowerName.includes('pantoprazol')) {
         category = 'Gastrointestinal';
-      } else if (lowerName.includes('clamoxin') || lowerName.includes('amoxicilina') || lowerName.includes('ampicilina') || lowerName.includes('cefalexina') || lowerName.includes('susp')) {
+      } else if (lowerName.includes('clamoxin') || lowerName.includes('amoxicilina') || lowerName.includes('ampicilina') || lowerName.includes('cefalexina') || lowerName.includes('dimopen') || lowerName.includes('susp')) {
         category = 'Antibióticos';
       } else if (lowerName.includes('embarazo') || lowerName.includes('exactitest') || lowerName.includes('quickly') || lowerName.includes('prueba')) {
         category = 'Pruebas y Diagnóstico';
-      } else if (lowerName.includes('ciclobenzaprina') || lowerName.includes('clonix') || lowerName.includes('paracetamol') || lowerName.includes('ibuprofeno')) {
+      } else if (lowerName.includes('ciclobenzaprina') || lowerName.includes('clonix') || lowerName.includes('paracetamol') || lowerName.includes('ibuprofeno') || lowerName.includes('brudifen')) {
         category = 'Analgésicos y Relajantes';
       } else if (lowerName.includes('aceite') || lowerName.includes('romero') || lowerName.includes('canela')) {
         category = 'Cuidado Personal y Herbolaria';
@@ -280,6 +296,8 @@ export function parseInvoiceLinesDirectly(
         unitOfMeasure: matchedProd?.unitOfMeasure || (lowerName.includes('susp') ? 'Frasco' : lowerName.includes('cap') ? 'Caja' : 'Pieza'),
         category: matchedProd?.category || category,
         department: matchedProd ? matchedProd.department : department,
+        laboratory: laboratory || (matchedProd?.laboratory || ''),
+        totalImport: lineImport,
         prescriptionRequired: matchedProd ? matchedProd.prescriptionRequired : (category === 'Antibióticos'),
         matchedProductId: matchedProd ? matchedProd.id : undefined,
         isNewProduct: !matchedProd,
@@ -289,7 +307,7 @@ export function parseInvoiceLinesDirectly(
       continue;
     }
 
-    // Pattern B: Single line product (e.g. "Paracetamol 500mg 20 Tabs Cant: 10 Costo: 18.50" or "7501008492011 MED-100 ...")
+    // Pattern B: Single line product (e.g. with quantities and costs)
     if (/\d/.test(line) && line.length >= 8 && !line.toLowerCase().includes('lote') && !line.toLowerCase().includes('caducidad')) {
       let quantity = 1;
       let costPrice = 0;
@@ -297,7 +315,15 @@ export function parseInvoiceLinesDirectly(
       let code = '';
       let batchNumber = '';
       let expirationDate = '';
+      let laboratory = '';
       let name = line;
+
+      for (const lab of KNOWN_LABS) {
+        if (name.toUpperCase().includes(lab)) {
+          laboratory = lab;
+          break;
+        }
+      }
 
       // Detect Barcode (8 to 14 digits)
       const matchBarcode = line.match(/\b(750\d{10}|\d{8,14})\b/);
@@ -390,6 +416,8 @@ export function parseInvoiceLinesDirectly(
           unitOfMeasure: matchedProd?.unitOfMeasure || 'Pieza',
           category: matchedProd?.category || (department === 'farmacia' ? 'Medicamentos' : 'General'),
           department: matchedProd ? matchedProd.department : department,
+          laboratory: laboratory || (matchedProd?.laboratory || ''),
+          totalImport: quantity * costPrice,
           prescriptionRequired: matchedProd ? matchedProd.prescriptionRequired : false,
           matchedProductId: matchedProd ? matchedProd.id : undefined,
           isNewProduct: !matchedProd,
