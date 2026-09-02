@@ -105,9 +105,11 @@ export const POSView: React.FC<POSViewProps> = ({
   const [checkoutError, setCheckoutError] = useState<string>('');
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isBeepEnabled, setIsBeepEnabled] = useState<boolean>(true);
 
   // Audio synthesizer helper for authentic barcode scanner beeps
   const playScanBeep = (type: 'success' | 'error' | 'warning' = 'success') => {
+    if (!isBeepEnabled) return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -294,6 +296,26 @@ export const POSView: React.FC<POSViewProps> = ({
     });
   };
 
+  // Automatic exact barcode detection while typing / scanning with a laser gun
+  useEffect(() => {
+    const raw = searchTerm.trim();
+    if (!raw || raw.length < 3) return;
+
+    const lower = raw.toLowerCase();
+    // Check if the current search term is an exact match for a barcode or product code
+    const isExactMatch = products.some(
+      p => (p.barcode && p.barcode.trim().toLowerCase() === lower) ||
+           (p.code && p.code.trim().toLowerCase() === lower)
+    );
+
+    if (isExactMatch) {
+      const timer = setTimeout(() => {
+        handleBarcodeScanned(raw);
+      }, 90);
+      return () => clearTimeout(timer);
+    }
+  }, [searchTerm, products]);
+
   // Core Barcode / SKU Scanner Handler
   const handleBarcodeScanned = (scannedCode: string) => {
     const raw = scannedCode.trim();
@@ -387,7 +409,7 @@ export const POSView: React.FC<POSViewProps> = ({
     }, 40);
   };
 
-  // Global Hardware Barcode Scanner Listener (captures rapid key sequences ending in Enter from USB/BT guns)
+  // Global Hardware Barcode Scanner Listener (captures rapid key sequences ending in Enter/Tab from USB/BT guns)
   useEffect(() => {
     let keyBuffer = '';
     let lastKeyTime = Date.now();
@@ -422,7 +444,7 @@ export const POSView: React.FC<POSViewProps> = ({
         keyBuffer = '';
       }
 
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' || e.key === 'Tab') {
         if (keyBuffer.length >= 3) {
           e.preventDefault();
           handleBarcodeScanned(keyBuffer);
@@ -430,6 +452,18 @@ export const POSView: React.FC<POSViewProps> = ({
         }
       } else if (e.key.length === 1) {
         keyBuffer += e.key;
+
+        // Auto-detect if buffered string matches a barcode directly
+        if (keyBuffer.length >= 6) {
+          const matched = products.find(
+            p => (p.barcode && p.barcode.toLowerCase() === keyBuffer.toLowerCase()) ||
+                 (p.code && p.code.toLowerCase() === keyBuffer.toLowerCase())
+          );
+          if (matched) {
+            handleBarcodeScanned(keyBuffer);
+            keyBuffer = '';
+          }
+        }
       }
     };
 
@@ -661,15 +695,23 @@ export const POSView: React.FC<POSViewProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
+                onPaste={e => {
+                  const pastedText = e.clipboardData.getData('text');
+                  if (pastedText && pastedText.trim().length >= 3) {
+                    setTimeout(() => {
+                      handleBarcodeScanned(pastedText.trim());
+                    }, 50);
+                  }
+                }}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') {
+                  if (e.key === 'Enter' || e.key === 'Tab') {
                     e.preventDefault();
                     if (searchTerm.trim()) {
                       handleBarcodeScanned(searchTerm);
                     }
                   }
                 }}
-                placeholder="Escanea código de barras con pistola láser o busca medicamento..."
+                placeholder="Escanea código con pistola láser o busca medicamento..."
                 className="w-full pl-10 pr-28 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 font-medium"
               />
               
@@ -681,7 +723,7 @@ export const POSView: React.FC<POSViewProps> = ({
                       setSearchTerm('');
                       searchInputRef.current?.focus();
                     }}
-                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
                     title="Limpiar búsqueda"
                   >
                     <X className="w-4 h-4" />
@@ -692,7 +734,7 @@ export const POSView: React.FC<POSViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCameraBarcodeOpen(true)}
-                  className="flex items-center gap-1 px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg text-xs font-bold border border-teal-200 cursor-pointer transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg text-xs font-bold border border-teal-200 cursor-pointer transition-colors shadow-2xs"
                   title="Escanear código de barras con la cámara del dispositivo"
                 >
                   <Barcode className="w-3.5 h-3.5 text-teal-600" />
@@ -701,15 +743,30 @@ export const POSView: React.FC<POSViewProps> = ({
               </div>
             </div>
 
-            {/* Quick Barcode Scanner Active Indicator */}
-            <div className="flex items-center gap-2 mt-1.5 px-1">
-              <div className="flex items-center gap-1 text-[11px] text-teal-700 font-semibold">
+            {/* Quick Barcode Scanner Active Indicator & Sound Toggle */}
+            <div className="flex items-center justify-between gap-2 mt-1.5 px-1 flex-wrap">
+              <div className="flex items-center gap-1.5 text-[11px] text-teal-800 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Lector de código activo:</span>
+                <span>Lector automático activo:</span>
+                <span className="text-[10px] text-slate-500 font-normal">
+                  Pistola láser o escáner agrega automáticamente al carrito.
+                </span>
               </div>
-              <span className="text-[10px] text-slate-500 truncate">
-                Pasa la pistola láser o presiona Enter para sumar al carrito al instante.
-              </span>
+
+              {/* Sound Beep Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsBeepEnabled(prev => !prev)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                  isBeepEnabled 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100' 
+                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                }`}
+                title="Activar o desactivar sonido de confirmación al escanear"
+              >
+                <Volume2 className={`w-3 h-3 ${isBeepEnabled ? 'text-emerald-600' : 'text-slate-400'}`} />
+                <span>{isBeepEnabled ? 'Beep Activo' : 'Mudo'}</span>
+              </button>
             </div>
           </div>
 

@@ -58,6 +58,8 @@ export interface Product {
   minStock: number;
   batchNumber?: string;
   expirationDate?: string; // YYYY-MM-DD
+  laboratory?: string; // e.g. "Bruluar", "Wermar", "Novag", "Maver", "Sons", "Amsa", "Mavi", "Collins", "Biomep", "Liferpa", "Raam", "Loeffler"
+  satCode?: string; // Clave SAT e.g. "51101511", "51161800"
   prescriptionRequired: boolean;
   location?: string;
   photoUrl?: string;
@@ -186,6 +188,8 @@ export interface MovementItem {
   subtotal: number;
   batchNumber?: string;
   expirationDate?: string;
+  laboratory?: string;
+  satCode?: string;
 }
 
 export interface InventoryMovement {
@@ -219,6 +223,10 @@ export interface SupplierTicketItem {
   category?: string;
   department?: ProductDepartment;
   prescriptionRequired?: boolean;
+  laboratory?: string;
+  satCode?: string;
+  taxRate?: number;
+  totalImport?: number;
   matchedProductId?: string;
   isNewProduct?: boolean;
 }

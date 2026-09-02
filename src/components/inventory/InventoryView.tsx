@@ -44,6 +44,7 @@ import { SupplierTicketModal } from './SupplierTicketModal';
 import { StockEntryExcelModal } from '../movements/StockEntryExcelModal';
 import { ExportInventoryModal } from './ExportInventoryModal';
 import { WhatsAppAlertModal } from './WhatsAppAlertModal';
+import { QuickPriceEditorModal } from './QuickPriceEditorModal';
 import { Customer, Sale, DebtPayment, CashCut } from '../../types/pharmacy';
 import { 
   analyzeInventoryForAlerts, 
@@ -57,6 +58,7 @@ interface InventoryViewProps {
   products: Product[];
   settings: PharmacySettings;
   onSaveProduct: (product: Product) => void;
+  onSaveMultipleProducts?: (products: Product[]) => void;
   onDeleteProduct: (productId: string) => void;
   onRegisterMovement?: (movement: InventoryMovement, updatedProducts: Product[]) => void;
   onSaveSettings?: (newSettings: PharmacySettings) => void;
@@ -73,6 +75,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   products,
   settings,
   onSaveProduct,
+  onSaveMultipleProducts,
   onDeleteProduct,
   onRegisterMovement,
   onSaveSettings,
@@ -116,6 +119,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Export / Backup Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // Quick Price & Profit Margin Modal State
+  const [isQuickPriceModalOpen, setIsQuickPriceModalOpen] = useState(false);
+
+  // Inline Fast Price Edit Mode directly in table
+  const [isInlinePriceEditMode, setIsInlinePriceEditMode] = useState(false);
+  const [inlinePriceDrafts, setInlinePriceDrafts] = useState<Record<string, { costPrice: number; sellingPrice: number; marginPercent: number; saved?: boolean }>>({});
+  
+  // Profit Margin in Product Form Modal
+  const [formMarginPercent, setFormMarginPercent] = useState<number>(35);
 
   // WhatsApp Alert Modal & Inline State
   const [isWhatsAppAlertModalOpen, setIsWhatsAppAlertModalOpen] = useState(false);
@@ -290,9 +303,131 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     });
   }, [products, searchTerm, filterType, selectedCategory]);
 
+  // Bulk save products callback
+  const handleBulkSaveProducts = (updatedProds: Product[]) => {
+    if (onSaveMultipleProducts) {
+      onSaveMultipleProducts(updatedProds);
+    } else {
+      updatedProds.forEach(p => onSaveProduct(p));
+    }
+  };
+
+  // Inline table row price draft management
+  const getRowPriceDraft = (p: Product) => {
+    if (inlinePriceDrafts[p.id]) {
+      return inlinePriceDrafts[p.id];
+    }
+    const cost = p.costPrice || 0;
+    const price = p.sellingPrice || 0;
+    const margin = cost > 0 ? Math.round(((price - cost) / cost) * 100) : (price > 0 ? 100 : 35);
+    return { costPrice: cost, sellingPrice: price, marginPercent: margin };
+  };
+
+  const handleInlineCostChange = (p: Product, newCost: number) => {
+    const draft = getRowPriceDraft(p);
+    const cost = Math.max(0, newCost);
+    const newPrice = Math.round(cost * (1 + draft.marginPercent / 100) * 100) / 100;
+    setInlinePriceDrafts(prev => ({
+      ...prev,
+      [p.id]: {
+        costPrice: cost,
+        sellingPrice: newPrice,
+        marginPercent: draft.marginPercent,
+        saved: false,
+      }
+    }));
+  };
+
+  const handleInlineMarginChange = (p: Product, newMargin: number) => {
+    const draft = getRowPriceDraft(p);
+    const newPrice = Math.round(draft.costPrice * (1 + newMargin / 100) * 100) / 100;
+    setInlinePriceDrafts(prev => ({
+      ...prev,
+      [p.id]: {
+        costPrice: draft.costPrice,
+        sellingPrice: newPrice,
+        marginPercent: newMargin,
+        saved: false,
+      }
+    }));
+  };
+
+  const handleInlinePriceChange = (p: Product, newPrice: number) => {
+    const draft = getRowPriceDraft(p);
+    const price = Math.max(0, newPrice);
+    const margin = draft.costPrice > 0 ? Math.round(((price - draft.costPrice) / draft.costPrice) * 100) : 0;
+    setInlinePriceDrafts(prev => ({
+      ...prev,
+      [p.id]: {
+        costPrice: draft.costPrice,
+        sellingPrice: price,
+        marginPercent: margin,
+        saved: false,
+      }
+    }));
+  };
+
+  const handleSaveInlineProductPrice = (p: Product) => {
+    const draft = getRowPriceDraft(p);
+    const updatedProd: Product = {
+      ...p,
+      costPrice: draft.costPrice,
+      sellingPrice: draft.sellingPrice,
+    };
+    onSaveProduct(updatedProd);
+    setInlinePriceDrafts(prev => ({
+      ...prev,
+      [p.id]: {
+        ...draft,
+        saved: true,
+      }
+    }));
+    setTimeout(() => {
+      setInlinePriceDrafts(prev => {
+        if (!prev[p.id]) return prev;
+        const copy = { ...prev };
+        delete copy[p.id].saved;
+        return copy;
+      });
+    }, 2500);
+  };
+
+  // Pricing synchronization in Product Modal
+  const handleFormCostPriceChange = (newCost: number) => {
+    const cost = Math.max(0, newCost);
+    const calculatedPrice = Math.round(cost * (1 + formMarginPercent / 100) * 100) / 100;
+    setFormData(prev => ({
+      ...prev,
+      costPrice: cost,
+      sellingPrice: calculatedPrice,
+    }));
+  };
+
+  const handleFormMarginPercentChange = (newMargin: number) => {
+    setFormMarginPercent(newMargin);
+    const cost = Number(formData.costPrice) || 0;
+    const calculatedPrice = Math.round(cost * (1 + newMargin / 100) * 100) / 100;
+    setFormData(prev => ({
+      ...prev,
+      sellingPrice: calculatedPrice,
+    }));
+  };
+
+  const handleFormSellingPriceChange = (newPrice: number) => {
+    const price = Math.max(0, newPrice);
+    const cost = Number(formData.costPrice) || 0;
+    const calculatedMargin = cost > 0 ? Math.round(((price - cost) / cost) * 100) : 0;
+    setFormMarginPercent(calculatedMargin);
+    setFormData(prev => ({
+      ...prev,
+      sellingPrice: price,
+    }));
+  };
+
   const openNewProductModal = () => {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     setEditingProduct(null);
+    setFormMarginPercent(100);
     setFormData({
       code: `MED-${randomSuffix}`,
       barcode: `750${Math.floor(1000000000 + Math.random() * 9000000000)}`,
@@ -319,6 +454,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const openEditModal = (p: Product) => {
     setEditingProduct(p);
+    const cost = p.costPrice || 0;
+    const price = p.sellingPrice || 0;
+    const margin = cost > 0 ? Math.round(((price - cost) / cost) * 100) : 35;
+    setFormMarginPercent(margin);
     setFormData({
       ...p,
       code: p.code || p.barcode || '',
@@ -594,6 +733,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           >
             <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
             <span>+ Entrada</span>
+          </button>
+
+          {/* Ajuste Rápido de Precios y Margen de Ganancia */}
+          <button
+            onClick={() => setIsQuickPriceModalOpen(true)}
+            className="flex-1 sm:flex-initial px-3 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow ring-1 ring-amber-400/30"
+            title="Modificar rápidamente precios de compra y venta agregando porcentaje de ganancia individual o masivamente"
+          >
+            <Percent className="w-4 h-4 text-amber-200" />
+            <span>💲 Precios & Margen</span>
           </button>
 
           {/* Surtir con Documento Escaneado / Ticket / Factura PDF */}
@@ -976,6 +1125,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           >
             Requiere Receta Médica
           </button>
+
+          {/* Toggle Quick Inline Price Edit Mode */}
+          <button
+            onClick={() => setIsInlinePriceEditMode(!isInlinePriceEditMode)}
+            className={`ml-auto px-3 py-1 rounded-md font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+              isInlinePriceEditMode
+                ? 'bg-amber-600 text-white ring-2 ring-amber-400 shadow-sm'
+                : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300'
+            }`}
+            title="Activar o desactivar la edición directa e instantánea de precios y porcentaje de ganancia en cada renglón de la tabla"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>{isInlinePriceEditMode ? '✓ Modo Edición de Precios Activo' : '⚡ Edición Rápida en Tabla'}</span>
+          </button>
         </div>
       </div>
 
@@ -988,7 +1151,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <th className="py-3 px-4">Código Único / SKU</th>
                 <th className="py-3 px-4">Medicamento / Descripción</th>
                 <th className="py-3 px-4">Unidad / Cat.</th>
-                <th className="py-3 px-4">Costo / Venta</th>
+                <th className="py-3 px-4 min-w-[220px]">
+                  <div className="flex items-center gap-1">
+                    <span>Costo / Margen / Venta</span>
+                    {isInlinePriceEditMode && (
+                      <span className="text-[9px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold">Editando</span>
+                    )}
+                  </div>
+                </th>
                 <th className="py-3 px-4">Stock</th>
                 <th className="py-3 px-4">Caducidad / Semáforo</th>
                 <th className="py-3 px-4">Lote / Ubicación</th>
@@ -1000,6 +1170,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 const exp = getExpiryStatus(p.expirationDate);
                 const isLowStock = p.stock <= p.minStock;
                 const margin = p.sellingPrice > 0 ? (((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(0) : '0';
+                const draft = getRowPriceDraft(p);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50/80  transition-colors">
@@ -1057,14 +1228,108 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </span>
                     </td>
 
-                    {/* Precios y Margen */}
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900 ">
-                        {formatCurrency(p.sellingPrice)}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        Costo: {formatCurrency(p.costPrice)} <span className="text-emerald-600 font-medium">({margin}% mrg)</span>
-                      </div>
+                    {/* Precios y Margen (Soporta visualización normal y edición rápida en tabla) */}
+                    <td className="py-2.5 px-4">
+                      {isInlinePriceEditMode ? (
+                        <div className="p-2 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1.5 min-w-[210px]">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <label className="text-[9px] font-bold text-slate-600 block">Costo ($)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={draft.costPrice}
+                                onChange={e => handleInlineCostChange(p, parseFloat(e.target.value) || 0)}
+                                className="w-full px-1.5 py-1 text-xs font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500"
+                              />
+                            </div>
+                            <div className="w-16">
+                              <label className="text-[9px] font-bold text-amber-800 block">% Ganancia</label>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="500"
+                                value={draft.marginPercent}
+                                onChange={e => handleInlineMarginChange(p, parseFloat(e.target.value) || 0)}
+                                className="w-full px-1.5 py-1 text-xs font-bold bg-white border border-amber-300 text-amber-900 rounded focus:ring-1 focus:ring-amber-500"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="text-[9px] font-bold text-teal-800 block">Venta ($)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={draft.sellingPrice}
+                                onChange={e => handleInlinePriceChange(p, parseFloat(e.target.value) || 0)}
+                                className="w-full px-1.5 py-1 text-xs font-bold bg-white border-2 border-teal-500 text-teal-900 rounded focus:ring-1 focus:ring-teal-500"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center justify-between gap-1 pt-0.5">
+                            {/* Preset Pills */}
+                            <div className="flex items-center gap-1">
+                              {[30, 40, 50, 100].map(pct => (
+                                <button
+                                  key={pct}
+                                  type="button"
+                                  onClick={() => handleInlineMarginChange(p, pct)}
+                                  className={`px-1 py-0.2 text-[9px] font-bold rounded cursor-pointer ${
+                                    draft.marginPercent === pct
+                                      ? 'bg-amber-600 text-white'
+                                      : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-100'
+                                  }`}
+                                >
+                                  +{pct}%
+                                </button>
+                              ))}
+                            </div>
+                            {/* Instant Save Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleSaveInlineProductPrice(p)}
+                              className={`px-2 py-0.5 text-[10px] font-black rounded flex items-center gap-1 transition-all cursor-pointer ${
+                                draft.saved
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-amber-600 hover:bg-amber-500 text-white shadow-2xs'
+                              }`}
+                            >
+                              {draft.saved ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  <span>¡Listo!</span>
+                                </>
+                              ) : (
+                                <span>Guardar</span>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="group relative">
+                          <div className="flex items-center justify-between">
+                            <div className="font-bold text-slate-900 text-sm">
+                              {formatCurrency(p.sellingPrice)}
+                            </div>
+                            <button
+                              onClick={() => setIsQuickPriceModalOpen(true)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-amber-600 hover:bg-amber-50 rounded"
+                              title="Ajustar precios y margen de ganancia"
+                            >
+                              <Percent className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <span>Costo: {formatCurrency(p.costPrice)}</span>
+                            <span className="text-emerald-700 font-bold bg-emerald-50 px-1 rounded border border-emerald-200/60">
+                              +{p.costPrice > 0 ? Math.round(((p.sellingPrice - p.costPrice) / p.costPrice) * 100) : 0}% ganancia
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </td>
 
                     {/* Stock Actual vs Mínimo */}
@@ -1820,35 +2085,102 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
 
-                {/* Precios & Stock */}
-                <div>
-                  <label className="block font-semibold text-slate-700  mb-1">
-                    Precio de Costo (Compra): *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    required
-                    value={formData.costPrice}
-                    onChange={e => setFormData(prev => ({ ...prev, costPrice: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50  border border-slate-300  rounded-lg font-bold"
-                  />
-                </div>
+                {/* Precios & Margen de Ganancia con cálculo automático */}
+                <div className="sm:col-span-3 bg-teal-50/70 p-4 rounded-xl border border-teal-200 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-bold text-teal-900 flex items-center gap-1.5 text-xs">
+                      <DollarSign className="w-4 h-4 text-teal-700" />
+                      Estructura de Precios y Porcentaje de Ganancia
+                    </span>
+                    {(formData.costPrice || 0) > 0 && (formData.sellingPrice || 0) > 0 && (
+                      <span className="text-[11px] font-bold text-teal-900 bg-teal-200/80 px-2.5 py-0.5 rounded-full border border-teal-300">
+                        Ganancia: {formatCurrency(Math.max(0, (formData.sellingPrice || 0) - (formData.costPrice || 0)))} / unidad
+                      </span>
+                    )}
+                  </div>
 
-                <div>
-                  <label className="block font-semibold text-slate-700  mb-1">
-                    Precio de Venta al Público: *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    required
-                    value={formData.sellingPrice}
-                    onChange={e => setFormData(prev => ({ ...prev, sellingPrice: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50  border border-slate-300  rounded-lg font-bold text-teal-700  text-sm"
-                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Cost Price */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        1. Precio Costo (Compra): *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          required
+                          value={formData.costPrice}
+                          onChange={e => handleFormCostPriceChange(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-7 pr-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-slate-900 focus:ring-2 focus:ring-teal-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Profit Margin % */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        2. % Ganancia deseado:
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          max="1000"
+                          value={formMarginPercent}
+                          onChange={e => handleFormMarginPercentChange(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-3 pr-7 py-2 bg-white border border-slate-300 rounded-lg font-bold text-amber-900 focus:ring-2 focus:ring-teal-500"
+                          placeholder="35"
+                        />
+                        <Percent className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2" />
+                      </div>
+                      
+                      {/* Preset Pills */}
+                      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                        {[20, 25, 30, 35, 40, 50, 60, 100].map(pct => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() => handleFormMarginPercentChange(pct)}
+                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors cursor-pointer ${
+                              formMarginPercent === pct
+                                ? 'bg-teal-700 text-white shadow-2xs'
+                                : 'bg-white hover:bg-teal-100 text-teal-800 border border-teal-200'
+                            }`}
+                          >
+                            +{pct}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Selling Price */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        3. Precio Venta al Público: *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-teal-700 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          required
+                          value={formData.sellingPrice}
+                          onChange={e => handleFormSellingPriceChange(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-7 pr-3 py-2 bg-white border-2 border-teal-500 rounded-lg font-bold text-teal-950 text-sm focus:ring-2 focus:ring-teal-600 shadow-2xs"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 block mt-1">
+                        Margen s/ venta: {formData.sellingPrice && Number(formData.sellingPrice) > 0 ? Math.round((((formData.sellingPrice - (formData.costPrice || 0)) / formData.sellingPrice) * 100)) : 0}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div>
@@ -2035,6 +2367,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             onSaveSettings(newSettings);
           }
         }}
+      />
+
+      {/* Quick Price & Profit Margin Bulk Editor Modal */}
+      <QuickPriceEditorModal
+        isOpen={isQuickPriceModalOpen}
+        onClose={() => setIsQuickPriceModalOpen(false)}
+        products={products}
+        onSaveMultipleProducts={handleBulkSaveProducts}
       />
 
     </div>

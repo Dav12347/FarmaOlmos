@@ -239,6 +239,30 @@ export default function App() {
     }
   };
 
+  // Handle multiple products update (Bulk price / margin update)
+  const handleSaveMultipleProducts = async (updatedProductsList: Product[]) => {
+    const updatedMap = new Map(updatedProductsList.map(p => [p.id, p]));
+    const nextProducts = products.map(p => updatedMap.get(p.id) || p);
+    
+    // Also prepend any new products if any
+    updatedProductsList.forEach(p => {
+      if (!products.some(old => old.id === p.id)) {
+        nextProducts.unshift(p);
+      }
+    });
+
+    setProducts(nextProducts);
+    StorageManager.saveProducts(nextProducts, true);
+
+    try {
+      for (const p of updatedProductsList) {
+        await CloudSyncService.saveProduct(p);
+      }
+    } catch (e) {
+      console.warn('Cloud multiple products save note:', e);
+    }
+  };
+
   const handleDeleteProduct = async (productId: string) => {
     const nextProducts = products.filter(p => p.id !== productId);
     setProducts(nextProducts);
@@ -718,6 +742,7 @@ export default function App() {
             products={products}
             settings={settings}
             onSaveProduct={handleSaveProduct}
+            onSaveMultipleProducts={handleSaveMultipleProducts}
             onDeleteProduct={handleDeleteProduct}
             onRegisterMovement={handleRegisterMovement}
             onSaveSettings={handleSaveSettings}
